@@ -7,7 +7,7 @@ representation? point based? <br>
 Diff.GPS Data into map representation (Johannes) <br>
 Geometric localization tool/representation
 
-# Tasks new:
+# Tasks new (deadline: monday 30.03.):
 Johannes: Improve mapping - Heading angle and object classes
 Julius: Check if easier way to detect signs etc. and train detector on cityscapes 
 Felix: Kitti dataset(for better GPS groundtruth) and helps Juuu and thinks about feature mapping
