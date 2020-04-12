@@ -27,7 +27,9 @@ static classes mapillary vistas: class_names = ['Bench', 'Billboard', 'Catch Bas
                'Traffic Light', 'Traffic Sign (Back)', 'Traffic Sign (Front)', 'Trash Can']
 mAP@IoU=0.5: 
 class name: Bench: mAP: nan
+
 class name: Billboard: mAP: 0.13378898509652173
+
 class name: Catch Basin: mAP: 0.08723088352212927
 class name: CCTV Camera: mAP: 0.009009009009009009
 class name: Fire Hydrant: mAP: 0.05945945945945946
