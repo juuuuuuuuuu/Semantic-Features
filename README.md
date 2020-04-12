@@ -26,25 +26,23 @@ static classes mapillary vistas: class_names = ['Bench', 'Billboard', 'Catch Bas
                'Manhole', 'Phone Booth', 'Street Light', 'Pole', 'Traffic Sign Frame', 'Utility Pole',
                'Traffic Light', 'Traffic Sign (Back)', 'Traffic Sign (Front)', 'Trash Can']
 mAP@IoU=0.5: 
-class name: Bench: mAP: nan
-
-class name: Billboard: mAP: 0.13378898509652173
-
-class name: Catch Basin: mAP: 0.08723088352212927
-class name: CCTV Camera: mAP: 0.009009009009009009
-class name: Fire Hydrant: mAP: 0.05945945945945946
-class name: Junction Box: mAP: 0.018995633194279982
-class name: Mailbox: mAP: 0.0
-class name: Manhole: mAP: 0.1898932374137172
-class name: Phone Booth: mAP: 0.0
-class name: Street Light: mAP: 0.16076993966647124
-class name: Pole: mAP: 0.07435044233169
-class name: Traffic Sign Frame: mAP: 0.0
-class name: Utility Pole: mAP: 0.10728754850566499
-class name: Traffic Light: mAP: 0.22378939301032894
-class name: Traffic Sign (Back): mAP: 0.06839771660148428
-class name: Traffic Sign (Front): mAP: 0.24776525653562692
-class name: Trash Can: mAP: 0.06402141058740836
+class name: Bench: mAP: nan <br>
+class name: Billboard: mAP: 0.13378898509652173 <br>
+class name: Catch Basin: mAP: 0.08723088352212927 <br>
+class name: CCTV Camera: mAP: 0.009009009009009009 <br>
+class name: Fire Hydrant: mAP: 0.05945945945945946 <br>
+class name: Junction Box: mAP: 0.018995633194279982 <br>
+class name: Mailbox: mAP: 0.0 <br>
+class name: Manhole: mAP: 0.1898932374137172 <br>
+class name: Phone Booth: mAP: 0.0 <br>
+class name: Street Light: mAP: 0.16076993966647124 <br>
+class name: Pole: mAP: 0.07435044233169 <br>
+class name: Traffic Sign Frame: mAP: 0.0 <br>
+class name: Utility Pole: mAP: 0.10728754850566499 <br>
+class name: Traffic Light: mAP: 0.22378939301032894 <br>
+class name: Traffic Sign (Back): mAP: 0.06839771660148428 <br>
+class name: Traffic Sign (Front): mAP: 0.24776525653562692 <br>
+class name: Trash Can: mAP: 0.06402141058740836 <br>
 static classes : static_classes = ['other', 'traffic light', 'fire hydrant', 
                   'stop sign', 'parking meter', 'bench']
 
