@@ -6,6 +6,12 @@ Code clean up:
 - All utility functions into utils.py (lidar to depth, disparity to depth, depth + mask -> landmark)
 - Class for Mask R-CNN inference
 
+# Due until Thursday:
+Berk: Get coordinates of objects - put funktion in utils file <br>
+Johannes: Output disparity map with higher resolution & (Helps Berk with dataset) <br>
+Juuuuu: Class for Mask R-CNN inference & find form for accuracy <br>
+Flixi: Visialization of output - Open3D <br>
+
 Run KITTI dataset and visualize
 
 # Tasks old:
