@@ -1,18 +1,16 @@
 # Semantic-Features
 Semantic Features for Localisation
 
-# Tasks new:
-Code clean up:
-- All utility functions into utils.py (lidar to depth, disparity to depth, depth + mask -> landmark)
-- Class for Mask R-CNN inference
+# Tasks (due until Thursday):
+- Goal: Run KITTI dataset and visualize
 
-# Due until Thursday:
 Berk: Get coordinates of objects - put funktion in utils file <br>
 Johannes: Output disparity map with higher resolution & (Helps Berk with dataset) <br>
 Juuuuu: Class for Mask R-CNN inference & find form for accuracy <br>
 Flixi: Visialization of output - Open3D <br>
+- All utility functions into utils.py (lidar to depth, disparity to depth, depth + mask -> landmark)
 
-Run KITTI dataset and visualize
+
 
 # Tasks old:
 Only use static classes for coco <br>
@@ -21,11 +19,6 @@ representation? point based? <br>
 Diff.GPS Data into map representation (Johannes) <br>
 Geometric localization tool/representation
 
-# Tasks old (deadline: monday 30.03.):
-Johannes: Improve mapping - Heading angle and object classes <br>
-Julius: Check if easier way to detect signs etc. and train detector on cityscapes <br>
-Felix: Kitti dataset(for better GPS groundtruth) and helps Juuu and thinks about feature mapping <br>
-Berk: Improve code and check if return values are true
 
 # Object detector:
 static classes mapillary vistas: class_names = ['Bench', 'Billboard', 'Catch Basin', 'CCTV Camera', 'Fire Hydrant', 'Junction Box', 'Mailbox',
