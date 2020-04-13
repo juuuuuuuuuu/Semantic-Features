@@ -86,8 +86,6 @@ def pcl_to_image(pointcloud, transform, intrinsic_matrix, img_shape):
     pcl_inside_view_xyz = pcl_inside_view_xyz[:, pcl_inside_view_xyz[2, :] > 0]
     pcl_inside_view = pcl_inside_view_xyz[:3, :].T
 
-    #pcl_inside_view = pcl_inside_view[pcl_inside_view[:, 2] > 0, :]
-
     pcl_projected = np.array(intrinsic_matrix).dot(pcl_inside_view_xyz)
     pixel = np.rint(pcl_projected / pcl_projected[2, :]).astype(int)[:2, :]
 
