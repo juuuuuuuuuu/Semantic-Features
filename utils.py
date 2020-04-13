@@ -68,7 +68,7 @@ def camera_frame_to_world_transform(heading, yaw_ext, pitch_ext, roll_ext, x_ext
     return T_w_v.dot(T_v_c.dot(np.linalg.inv(C_c)))
 
 
-def pcl_to_image(pointcloud, intrinsic_matrix, img_shape):
+def pcl_to_image(pointcloud, transform, intrinsic_matrix, img_shape):
     """ Projects a pointcloud to camera image.
     int
     img_shape: Tuple containing (width, height)
@@ -78,11 +78,17 @@ def pcl_to_image(pointcloud, intrinsic_matrix, img_shape):
 
     depth_image = np.zeros((image_height, image_width), dtype=np.float32)
 
-    pcl_inside_view = pointcloud[pointcloud[:, 2] > 0, :]
-    pcl_inside_view_xyz = np.hstack((pcl_inside_view[:, :3],
+    pcl_inside_view = pointcloud
+    pcl_inside_view_xyz = np.hstack((pcl_inside_view,
                                     np.ones((pcl_inside_view.shape[0], 1))))
 
-    pcl_projected = np.array(intrinsic_matrix).dot(pcl_inside_view_xyz.T)
+    pcl_inside_view_xyz = transform.dot(pcl_inside_view_xyz.T)
+    pcl_inside_view_xyz = pcl_inside_view_xyz[:, pcl_inside_view_xyz[2, :] > 0]
+    pcl_inside_view = pcl_inside_view_xyz[:3, :].T
+
+    #pcl_inside_view = pcl_inside_view[pcl_inside_view[:, 2] > 0, :]
+
+    pcl_projected = np.array(intrinsic_matrix).dot(pcl_inside_view_xyz)
     pixel = np.rint(pcl_projected / pcl_projected[2, :]).astype(int)[:2, :]
 
     index_bool = np.logical_and(
