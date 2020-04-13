@@ -4,8 +4,13 @@ import numpy as np
 # TODO: Implement functions here:
 
 # Obtains the depth image from a disparity image.
-def disparity_to_depth(disparity_image, f_x, baseline):
-    print("TODO: Implement")
+def disparity_to_depth(disparity_image, f_x, baseline, min_disparity=7600):
+    # Adjust min and max disparity here!
+    disparity_image = disparity_image.astype(float)
+    disparity_image[np.logical_or(disparity_image == 65535, disparity_image < min_disparity)] = np.nan
+
+    # TODO: Check this conversion Johannes!
+    return baseline * f_x / ((disparity_image + 0.5) / 65536. * 49.)
 
 
 # Projects a screen pixel to world coordinates.
@@ -68,7 +73,7 @@ def camera_frame_to_world_transform(heading, yaw_ext, pitch_ext, roll_ext, x_ext
     return T_w_v.dot(T_v_c.dot(np.linalg.inv(C_c)))
 
 
-def pcl_to_image(pointcloud, transform, intrinsic_matrix, img_shape):
+def pcl_to_image(pointcloud, T_pcl_center_to_cam, intrinsic_matrix, img_shape):
     """ Projects a pointcloud to camera image.
     int
     img_shape: Tuple containing (width, height)
@@ -82,7 +87,7 @@ def pcl_to_image(pointcloud, transform, intrinsic_matrix, img_shape):
     pcl_inside_view_xyz = np.hstack((pcl_inside_view,
                                     np.ones((pcl_inside_view.shape[0], 1))))
 
-    pcl_inside_view_xyz = transform.dot(pcl_inside_view_xyz.T)
+    pcl_inside_view_xyz = T_pcl_center_to_cam.dot(pcl_inside_view_xyz.T)
     pcl_inside_view_xyz = pcl_inside_view_xyz[:, pcl_inside_view_xyz[2, :] > 0]
     pcl_inside_view = pcl_inside_view_xyz[:3, :].T
 

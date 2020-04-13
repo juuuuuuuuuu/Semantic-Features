@@ -51,9 +51,7 @@ if __name__ == '__main__':
 
     depth_img = utils.pcl_to_image(velo[:, :3], T_cam2_velo, P_cam2, (rgb_img.shape[0], rgb_img.shape[1]))
 
-    disparity = disparity.astype(float)
-    disparity[np.logical_or(disparity == 255, disparity < 30)] = np.nan
-    depth_from_disp = baseline * fx / ((disparity + 0.5) / 256. * 49)
+    depth_from_disp = utils.disparity_to_depth(disparity, fx, baseline)
     errors = reprojection_error(depth_img, depth_from_disp)
 
     f, ax = plt.subplots(2, 2, figsize=(15, 5))
@@ -64,6 +62,7 @@ if __name__ == '__main__':
     ax[0, 1].imshow(depth_img)
     ax[0, 1].set_title('Depth from LIDAR')
 
+    depth_from_disp[np.where(depth_img > 0)] = depth_img[np.where(depth_img > 0)]
     ax[1, 1].imshow(depth_from_disp)
     ax[1, 1].set_title('Depth from disparity')
 
