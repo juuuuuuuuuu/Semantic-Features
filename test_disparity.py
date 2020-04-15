@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-import utils
+from tools import utils
 import pykitti
 import matplotlib.pyplot as plt
 
