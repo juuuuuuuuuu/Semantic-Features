@@ -1,21 +1,18 @@
-import open3d as o3d
-
-
-def load_data():
-    print("To be implemented.")
-
+import sys
+import os
 
 import numpy as np
 import open3d as o3d
-import os
 import pandas as pd
-import sys
+import cv2
+import matplotlib.pyplot as plt
 
 
 class LandmarkRenderer:
-    def __init__(self, poses, landmarks, labels, frame_ids, label_colors):
+    def __init__(self, poses, landmarks, landmark_pcls, labels, frame_ids, label_colors):
         self.poses = poses
         self.landmarks = landmarks
+        self.landmark_pcls = landmark_pcls
         self.lm_labels = labels
         self.lm_frame_ids = frame_ids
         self.label_colors = label_colors
@@ -24,6 +21,9 @@ class LandmarkRenderer:
         self.pointer = 0
         self.render_single_frame = False
         self.render_pose_connect = False
+        self.render_boxes = False
+
+        self.ground_grid = render_ground_grid()
 
     def run(self):
         vis = o3d.visualization.VisualizerWithKeyCallback()
@@ -34,10 +34,16 @@ class LandmarkRenderer:
         vis.register_key_callback(ord(" "), self.get_switch_index_callback())
         vis.register_key_callback(ord("A"), self.get_toggle_show_all_callback())
         vis.register_key_callback(ord("N"), self.get_toggle_connect_callback())
+        vis.register_key_callback(ord("S"), self.get_screen_cap_callback())
 
-        boxes = render_landmarks(self.landmarks, self.lm_labels, self.label_colors)
-        for box in boxes:
-            vis.add_geometry(box)
+        # boxes = render_landmarks(self.landmarks, self.lm_labels, self.label_colors)
+        # for box in boxes:
+        #     vis.add_geometry(box)
+
+        for pcl in render_pcls(self.poses, self.landmark_pcls, self.lm_labels, self.label_colors, None):
+            vis.add_geometry(pcl)
+        vis.add_geometry(self.ground_grid)
+
         vis.run()
         vis.destroy_window()
 
@@ -47,27 +53,40 @@ class LandmarkRenderer:
 
         indices = np.where(self.lm_frame_ids == self.unique_frame_ids[self.pointer])
 
-        if self.render_single_frame:
-            boxes = render_landmarks(
-                self.landmarks[indices, :][0],
-                self.lm_labels[indices, :][0],
-                self.label_colors
-            )
-            for box in boxes:
-                vis.add_geometry(box)
-        else:
-            boxes = render_landmarks(self.landmarks, self.lm_labels, self.label_colors)
-            for box in boxes:
-                vis.add_geometry(box)
-
-        if self.render_pose_connect:
+        if self.render_boxes:
             if self.render_single_frame:
-                vis.add_geometry(render_pose_connects(
-                    self.poses[indices, :][0],
-                    self.landmarks[indices, :][0]
-                ))
+                boxes = render_landmarks(
+                    self.landmarks[indices, :][0],
+                    self.lm_labels[indices, :][0],
+                    self.label_colors
+                )
+                for box in boxes:
+                    vis.add_geometry(box)
             else:
-                vis.add_geometry(render_pose_connects(self.poses, self.landmarks))
+                boxes = render_landmarks(self.landmarks, self.lm_labels, self.label_colors)
+                for box in boxes:
+                    vis.add_geometry(box)
+
+            if self.render_pose_connect:
+                if self.render_single_frame:
+                    vis.add_geometry(render_pose_connects(
+                        self.poses[indices, :][0],
+                        self.landmarks[indices, :][0]
+                    ))
+                else:
+                    vis.add_geometry(render_pose_connects(self.poses, self.landmarks))
+
+        if self.render_single_frame:
+            for pcl in render_pcls(self.poses, self.landmark_pcls,
+                                   self.lm_labels, self.label_colors, indices):
+                vis.add_geometry(pcl)
+        else:
+            for pcl in render_pcls(self.poses, self.landmark_pcls, self.lm_labels, self.label_colors, None):
+                vis.add_geometry(pcl)
+
+        vis.add_geometry(self.ground_grid)
+
+        self.get_screen_cap_callback()(vis)
 
         vis.update_renderer()
         vis.get_view_control().convert_from_pinhole_camera_parameters(view)
@@ -85,6 +104,15 @@ class LandmarkRenderer:
             self.update_render(vis)
 
         return toggle_show_all
+
+    def get_screen_cap_callback(self):
+        def capture_screen(vis):
+            image = np.asarray(vis.capture_screen_float_buffer(False))
+            path = "results/{}.jpg".format(self.unique_frame_ids[self.pointer])
+            cv2.imwrite(path, image * 255., [cv2.IMWRITE_JPEG_QUALITY, 40])
+            print("Screenshot saved to " + path)
+
+        return capture_screen
 
     def get_switch_index_callback(self):
         def switch_index(vis):
@@ -116,12 +144,31 @@ def render_landmarks(landmarks, labels, label_colors):
     return boxes
 
 
+def render_pcls(poses, pcls, labels, label_colors, indices):
+    geometries = []
+
+    for i in range(len(pcls)):
+        if indices and not np.isin(indices, i).any():
+            continue
+
+        geometry = o3d.geometry.PointCloud(
+            points=o3d.utility.Vector3dVector(np.transpose(pcls[i][:3, :]).astype(float))
+        )
+        geometry.colors = o3d.utility.Vector3dVector([label_colors[labels[i]] for j in range(pcls[i].shape[1])])
+        geometries.append(geometry)
+
+        size = 2
+        size_vec = np.array([size/2., size/2., size/2.])
+        pose_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=poses[i, :]-size_vec, max_bound=poses[i, :]+size_vec)
+        pose_box.color = np.array([0.5, 1.0, 0.5])
+
+        geometries.append(pose_box)
+
+    return geometries
+
+
 def render_pose_connects(poses, landmarks):
     line_count = poses.shape[0]
-
-    mid_points = (lines[:, 0:3] + lines[:, 3:6]) / 2
-    ends_1 = mid_points + lines[:, 7:10] * 0.05
-    ends_2 = mid_points + lines[:, 10:13] * 0.05
 
     points = np.vstack((poses[:3], landmarks[:3]))
     indices = np.vstack((
@@ -129,6 +176,33 @@ def render_pose_connects(poses, landmarks):
                           (np.arange(line_count) + line_count).reshape(line_count, 1)))
     ))
     colors = [[0.8, 0.8, 0.8] for i in range(line_count*2)]
+    line_set = o3d.geometry.LineSet(
+        points=o3d.utility.Vector3dVector(points.astype(float).tolist()),
+        lines=o3d.utility.Vector2iVector(indices.astype(int).tolist()),
+    )
+    line_set.colors = o3d.utility.Vector3dVector(colors)
+    return line_set
+
+
+def render_ground_grid():
+    scale = 10
+    size = 100
+    count = size * 2
+    x_min = -10
+    x_max = 2 * size - 10
+    x = np.arange(x_min, x_max).reshape(count, 1) * scale
+    y = np.arange(-size, size).reshape(count, 1) * scale
+    z = -1 * np.ones((count, 1))
+    x_1 = np.hstack([x, y * 0. + size * scale, z])
+    x_2 = np.hstack([x, y * 0. - size * scale, z])
+    y_1 = np.hstack([x * 0. + x_max * scale, y, z])
+    y_2 = np.hstack([x * 0. + x_min * scale, y, z])
+    points = np.vstack([x_1, x_2, y_1, y_2])
+    indices = np.vstack([
+        np.hstack([np.arange(count).reshape(count, 1), (np.arange(count) + count).reshape(count, 1)]),
+        np.hstack([(np.arange(count) + 2 * count).reshape(count, 1), (np.arange(count) + 3 * count).reshape(count, 1)])
+    ])
+    colors = [[0.3, 0.3, 0.3] for i in range(count * 2)]
     line_set = o3d.geometry.LineSet(
         points=o3d.utility.Vector3dVector(points.astype(float).tolist()),
         lines=o3d.utility.Vector2iVector(indices.astype(int).tolist()),
@@ -149,9 +223,24 @@ def get_colors():
     return colors
 
 
-def load_data(path):
-    print("Loading data from path {}".format(path))
-    print("TODO: Implement.")
+def load_data(path, n):
+    data = pd.read_csv(path, sep=" ", header=None)
+    data = data.values
+    pcls = []
+    labels = []
+    frame_ids = []
+    poses = []
+
+    for i in range(min(n, data.shape[0])):
+        pcls.append(np.load(data[i, 3] + ".npy"))
+        labels.append(int(data[i, 2]))
+        frame_ids.append(int(data[i, 0]))
+        poses.append(data[i, 4:])
+
+    labels = np.array(labels, dtype=int)
+    frame_ids = np.array(frame_ids, dtype=int)
+    poses = np.array(poses, dtype=float)
+    return poses, pcls, labels, frame_ids
 
 
 def load_lines(path):
@@ -164,14 +253,14 @@ def load_lines(path):
 
 
 if __name__ == '__main__':
-    path = "results.json"
+    path = "results/_results.txt"
 
-    #data = load_data()
+    poses, pcls, labels, frame_ids = load_data(path, 1000000)
 
-    lines = load_lines("/home/felix/line_ws/data/line_tools/interiornet_lines_split/all_lines_with_line_endpoints.txt")
-    landmarks = lines[:, [1, 2, 3]]
-    labels = lines[:, 7]
+    #pcl_test = [np.load("pcl_test.npy")]
+    #labels_test = np.array([0])
+    #frame_ids = np.array([0])
 
-    print("Number of landmarks is: {}".format(lines.shape[0]))
-    renderer = LandmarkRenderer(landmarks, landmarks, labels, labels, get_colors())
+    print("Number of landmarks is: {}".format(labels.shape[0]))
+    renderer = LandmarkRenderer(poses, None, pcls, labels, frame_ids, get_colors())
     renderer.run()
