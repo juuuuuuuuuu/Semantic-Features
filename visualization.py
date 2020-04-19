@@ -23,6 +23,11 @@ class LandmarkRenderer:
         self.render_pose_connect = False
         self.render_boxes = False
 
+        self.landmark_render_objects = render_pcls(self.poses,
+                                                   self.landmark_pcls,
+                                                   self.lm_labels,
+                                                   self.label_colors,
+                                                   None)
         self.ground_grid = render_ground_grid()
 
     def run(self):
@@ -31,17 +36,21 @@ class LandmarkRenderer:
         opt = vis.get_render_option()
         opt.background_color = np.asarray([0, 0, 0])
 
-        vis.register_key_callback(ord(" "), self.get_switch_index_callback())
+        vis.register_key_callback(ord("F"), self.get_switch_index_callback(forward=True))
+        vis.register_key_callback(ord("D"), self.get_switch_index_callback(forward=False))
         vis.register_key_callback(ord("A"), self.get_toggle_show_all_callback())
-        vis.register_key_callback(ord("N"), self.get_toggle_connect_callback())
+        # vis.register_key_callback(ord("N"), self.get_toggle_connect_callback())
         vis.register_key_callback(ord("S"), self.get_screen_cap_callback())
 
-        # boxes = render_landmarks(self.landmarks, self.lm_labels, self.label_colors)
-        # for box in boxes:
-        #     vis.add_geometry(box)
+        print("Press 'A' to toggle between show all and show only one frame.")
+        print("Press 'F' to switch to next frame.")
+        print("Press 'D' to switch to previous frame.")
+        print("Press 'S' to capture screenshot.")
 
-        for pcl in render_pcls(self.poses, self.landmark_pcls, self.lm_labels, self.label_colors, None):
-            vis.add_geometry(pcl)
+        for geometries in self.landmark_render_objects:
+            for geometry in geometries:
+                vis.add_geometry(geometry)
+
         vis.add_geometry(self.ground_grid)
 
         vis.run()
@@ -77,12 +86,14 @@ class LandmarkRenderer:
                     vis.add_geometry(render_pose_connects(self.poses, self.landmarks))
 
         if self.render_single_frame:
-            for pcl in render_pcls(self.poses, self.landmark_pcls,
-                                   self.lm_labels, self.label_colors, indices):
-                vis.add_geometry(pcl)
+            for i in range(len(self.landmark_render_objects)):
+                if self.lm_frame_ids[i] == self.unique_frame_ids[self.pointer]:
+                    for geometry in self.landmark_render_objects[i]:
+                        vis.add_geometry(geometry)
         else:
-            for pcl in render_pcls(self.poses, self.landmark_pcls, self.lm_labels, self.label_colors, None):
-                vis.add_geometry(pcl)
+            for geometries in self.landmark_render_objects:
+                for geometry in geometries:
+                    vis.add_geometry(geometry)
 
         vis.add_geometry(self.ground_grid)
 
@@ -114,14 +125,19 @@ class LandmarkRenderer:
 
         return capture_screen
 
-    def get_switch_index_callback(self):
+    def get_switch_index_callback(self, forward):
         def switch_index(vis):
             if not self.render_single_frame:
                 self.render_single_frame = True
             else:
-                self.pointer = self.pointer + 1
+                if forward:
+                    self.pointer = self.pointer + 1
+                else:
+                    self.pointer = self.pointer - 1
                 if self.pointer == self.frame_count:
                     self.pointer = 0
+                if self.pointer == -1:
+                    self.pointer = self.frame_count - 1
 
             print("Now showing frame {} ({}/{})".format(
                 self.unique_frame_ids[self.pointer], self.pointer + 1, self.frame_count))
@@ -151,18 +167,17 @@ def render_pcls(poses, pcls, labels, label_colors, indices):
         if indices and not np.isin(indices, i).any():
             continue
 
-        geometry = o3d.geometry.PointCloud(
+        pcl = o3d.geometry.PointCloud(
             points=o3d.utility.Vector3dVector(np.transpose(pcls[i][:3, :]).astype(float))
         )
-        geometry.colors = o3d.utility.Vector3dVector([label_colors[labels[i]] for j in range(pcls[i].shape[1])])
-        geometries.append(geometry)
+        pcl.colors = o3d.utility.Vector3dVector([label_colors[labels[i]] for j in range(pcls[i].shape[1])])
 
         size = 2
         size_vec = np.array([size/2., size/2., size/2.])
         pose_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=poses[i, :]-size_vec, max_bound=poses[i, :]+size_vec)
         pose_box.color = np.array([0.5, 1.0, 0.5])
 
-        geometries.append(pose_box)
+        geometries.append([pcl, pose_box])
 
     return geometries
 
@@ -186,13 +201,13 @@ def render_pose_connects(poses, landmarks):
 
 def render_ground_grid():
     scale = 10
-    size = 100
+    size = 30
     count = size * 2
     x_min = -10
     x_max = 2 * size - 10
     x = np.arange(x_min, x_max).reshape(count, 1) * scale
     y = np.arange(-size, size).reshape(count, 1) * scale
-    z = -1 * np.ones((count, 1))
+    z = -2 * np.ones((count, 1))
     x_1 = np.hstack([x, y * 0. + size * scale, z])
     x_2 = np.hstack([x, y * 0. - size * scale, z])
     y_1 = np.hstack([x * 0. + x_max * scale, y, z])

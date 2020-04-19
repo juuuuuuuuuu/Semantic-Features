@@ -4,7 +4,6 @@ import cv2
 import pykitti
 import json
 import matplotlib.pyplot as plt
-import imageio
 from tools import utils
 
 if __name__ == '__main__':
