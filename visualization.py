@@ -86,7 +86,7 @@ class LandmarkRenderer:
 
         vis.add_geometry(self.ground_grid)
 
-        self.get_screen_cap_callback()(vis)
+        # self.get_screen_cap_callback()(vis)
 
         vis.update_renderer()
         vis.get_view_control().convert_from_pinhole_camera_parameters(view)

@@ -81,7 +81,7 @@ def pcl_to_image(pointcloud, T_pcl_center_to_cam, intrinsic_matrix, img_shape):
     image_width = img_shape[1]
     image_height = img_shape[0]
 
-    depth_image = np.zeros((image_height, image_width), dtype=np.float32)
+    depth_image = np.nan * np.zeros((image_height, image_width), dtype=np.float32)
 
     pcl_inside_view = pointcloud
     pcl_inside_view_xyz = np.hstack((pcl_inside_view,

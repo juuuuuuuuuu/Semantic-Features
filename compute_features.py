@@ -48,8 +48,13 @@ if __name__ == '__main__':
         mask_image = cv2.imread(path_to_mask, cv2.IMREAD_GRAYSCALE)
         disp_image = cv2.imread(path_to_disp, cv2.IMREAD_UNCHANGED)
 
-        depth_image = utils.disparity_to_depth(disp_image, f_x, baseline)
-        depth_image = cv2.GaussianBlur(depth_image, (3, 3), 0)
+        depth_image_stereo = utils.disparity_to_depth(disp_image, f_x, baseline)
+        depth_image_stereo = cv2.GaussianBlur(depth_image_stereo, (3, 3), 0)
+
+        velo = dataset.get_velo(frame_id)
+        depth_image = utils.pcl_to_image(velo[:, :3], dataset.calib.T_cam0_velo,
+                                         P_cam2, (mask_image.shape[0], mask_image.shape[1]))
+        depth_image[:100, :] = depth_image_stereo[:100, :]
 
         class_ids = data['classes']
         for i in range(len(class_ids)):
@@ -63,11 +68,15 @@ if __name__ == '__main__':
                 point_cloud[:, j] = np.array([[z * (u - u_0) / f_x],
                                               [z * (v - v_0) / f_y],
                                               [z],
-                                              [1]]).reshape((4,))
+                                              [1.]], dtype=float).reshape((4,))
 
-            transform = T_w0_w.dot(dataset.poses[frame_id].dot(T_cam0_cam2))#.dot(np.linalg.inv(P_cam2))))
+            transform = T_w0_w.dot(dataset.poses[frame_id].dot(T_cam0_cam2))
             # Ground truth poses are T_w_cam0
             point_cloud = transform.dot(point_cloud)
+
+            # plt.imshow(depth_image)
+            # plt.show()
+            # exit(0)
 
             pcl_path = os.path.join(out_path, "landmark_f{}_i{}".format(data['image_id'], i))
             np.save(pcl_path, point_cloud)

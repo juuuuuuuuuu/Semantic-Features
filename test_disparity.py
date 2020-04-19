@@ -36,13 +36,13 @@ if __name__ == '__main__':
     first_rgb = dataset.get_rgb(219)
     first_cam2 = dataset.get_cam2(219)
     velo = dataset.get_velo(219)
-    baseline = dataset.calib.b_rgb
+    baseline = dataset.calib.b_gray
 
-    disparity = cv2.imread("/home/felix/vision_ws/Semantic-Features/content/kitti_dataset/dataset/sequences/04/rawpng/219raw.png",
-                           cv2.IMREAD_UNCHANGED)
+    path = "content/kitti_dataset/dataset/sequences/04/disparity_0/219raw.png"
+    disparity = cv2.imread(path, cv2.IMREAD_UNCHANGED)
 
-    P_cam2 = dataset.calib.P_rect_20
-    T_cam2_velo = dataset.calib.T_cam2_velo
+    P_cam2 = dataset.calib.P_rect_00
+    T_cam2_velo = dataset.calib.T_cam0_velo
 
     fx = P_cam2[0, 0]
 
@@ -52,6 +52,7 @@ if __name__ == '__main__':
     depth_img = utils.pcl_to_image(velo[:, :3], T_cam2_velo, P_cam2, (rgb_img.shape[0], rgb_img.shape[1]))
 
     depth_from_disp = utils.disparity_to_depth(disparity, fx, baseline)
+    depth_from_disp = cv2.GaussianBlur(depth_from_disp, (3, 3), 0)
     errors = reprojection_error(depth_img, depth_from_disp)
 
     f, ax = plt.subplots(2, 2, figsize=(15, 5))
