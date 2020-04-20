@@ -6,6 +6,7 @@ import json
 import matplotlib.pyplot as plt
 from tools import utils
 
+
 if __name__ == '__main__':
     basedir = 'content/kitti_dataset/dataset'
     sequence = '04'
@@ -51,7 +52,7 @@ if __name__ == '__main__':
         depth_image_stereo = cv2.GaussianBlur(depth_image_stereo, (3, 3), 0)
 
         velo = dataset.get_velo(frame_id)
-        depth_image = utils.pcl_to_image(velo[:, :3], dataset.calib.T_cam0_velo,
+        depth_image = utils.pcl_to_image(velo[:, :3], dataset.calib.T_cam2_velo,
                                          P_cam2, (mask_image.shape[0], mask_image.shape[1]))
         depth_image[:100, :] = depth_image_stereo[:100, :]
         
