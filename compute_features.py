@@ -6,6 +6,7 @@ import json
 import matplotlib.pyplot as plt
 from tools import utils
 
+
 if __name__ == '__main__':
     basedir = 'content/kitti_dataset/dataset'
     sequence = '04'
@@ -51,13 +52,15 @@ if __name__ == '__main__':
         depth_image_stereo = cv2.GaussianBlur(depth_image_stereo, (3, 3), 0)
 
         velo = dataset.get_velo(frame_id)
-        depth_image = utils.pcl_to_image(velo[:, :3], dataset.calib.T_cam0_velo,
+        depth_image = utils.pcl_to_image(velo[:, :3], dataset.calib.T_cam2_velo,
                                          P_cam2, (mask_image.shape[0], mask_image.shape[1]))
         depth_image[:100, :] = depth_image_stereo[:100, :]
+        depth_image = depth_image_stereo
 
         class_ids = data['classes']
         for i in range(len(class_ids)):
             mask = np.where(np.logical_and(mask_image == i + 1, np.logical_not(np.isnan(depth_image))))
+
             point_cloud = np.zeros((4, mask[0].shape[0]))
             for j in range(mask[0].shape[0]):
                 u = mask[1][j]
