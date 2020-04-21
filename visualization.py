@@ -9,25 +9,22 @@ import matplotlib.pyplot as plt
 
 
 class LandmarkRenderer:
-    def __init__(self, poses, landmarks, landmark_pcls, landmark_bbox, labels, frame_ids, label_colors):
+    def __init__(self, poses, landmarks, landmark_pcls, labels, frame_ids, label_colors):
         self.poses = poses
         self.landmarks = landmarks
         self.landmark_pcls = landmark_pcls
-        self.landmark_bbox = landmark_bbox
-
         self.lm_labels = labels
         self.lm_frame_ids = frame_ids
         self.label_colors = label_colors
         self.unique_frame_ids = np.unique(frame_ids)
         self.frame_count = len(self.unique_frame_ids)
         self.pointer = 0
-        self.render_single_frame = True
-        self.render_pose_connect = True
-        self.render_boxes = True
+        self.render_single_frame = False
+        self.render_pose_connect = False
+        self.render_boxes = False
 
         self.landmark_render_objects = render_pcls(self.poses,
                                                    self.landmark_pcls,
-                                                   self.landmark_bbox,
                                                    self.lm_labels,
                                                    self.label_colors,
                                                    None)
@@ -163,7 +160,7 @@ def render_landmarks(landmarks, labels, label_colors):
     return boxes
 
 
-def render_pcls(poses, pcls, bbox, labels, label_colors, indices):
+def render_pcls(poses, pcls, labels, label_colors, indices):
     geometries = []
 
     for i in range(len(pcls)):
@@ -171,19 +168,16 @@ def render_pcls(poses, pcls, bbox, labels, label_colors, indices):
             continue
 
         pcl = o3d.geometry.PointCloud(
-            points=o3d.utility.Vector3dVector(np.transpose(pcls[i][:3, :]).astype(float))
+            points=o3d.utility.Vector3dVector(np.asarray(np.transpose(pcls[i][:3, :])))
         )
         pcl.colors = o3d.utility.Vector3dVector([label_colors[labels[i]] for j in range(pcls[i].shape[1])])
 
         size = 2
         size_vec = np.array([size/2., size/2., size/2.])
-        pose_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=poses[i, :]-size_vec, max_bound=poses[i, :]+size_vec)        
+        pose_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=poses[i, :]-size_vec, max_bound=poses[i, :]+size_vec)
         pose_box.color = np.array([0.5, 1.0, 0.5])
 
-        landmark_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=bbox[i][0:3], max_bound=bbox[i][3:6])
-        landmark_box.color = label_colors[labels[i]]
-
-        geometries.append([pcl, pose_box, landmark_box])
+        geometries.append([pcl, pose_box])
 
     return geometries
 
@@ -248,21 +242,21 @@ def load_data(path, n):
     data = pd.read_csv(path, sep=" ", header=None)
     data = data.values
     pcls = []
-    bbox = []
     labels = []
     frame_ids = []
     poses = []
 
     for i in range(min(n, data.shape[0])):
         pcls.append(np.load(data[i, 3] + ".npy"))
-        bbox.append(np.load(data[i, 4] + ".npy"))
         labels.append(int(data[i, 2]))
         frame_ids.append(int(data[i, 0]))
-        poses.append(data[i, 5:])
+        poses.append(data[i, 4:])
+
     labels = np.array(labels, dtype=int)
     frame_ids = np.array(frame_ids, dtype=int)
     poses = np.array(poses, dtype=float)
-    return poses, pcls, bbox, labels, frame_ids
+    print(pcls)
+    return poses, pcls, labels, frame_ids
 
 
 def load_lines(path):
@@ -274,17 +268,15 @@ def load_lines(path):
     return data_lines
 
 
-
-
 if __name__ == '__main__':
     path = "results/_results.txt"
 
-    poses, pcls, bbox, labels, frame_ids = load_data(path, 1000000)
+    poses, pcls, labels, frame_ids = load_data(path, 1000000)
 
     #pcl_test = [np.load("pcl_test.npy")]
     #labels_test = np.array([0])
     #frame_ids = np.array([0])
 
     print("Number of landmarks is: {}".format(labels.shape[0]))
-    renderer = LandmarkRenderer(poses, None, pcls, bbox, labels, frame_ids, get_colors())
+    renderer = LandmarkRenderer(poses, None, pcls, labels, frame_ids, get_colors())
     renderer.run()

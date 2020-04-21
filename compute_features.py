@@ -6,7 +6,6 @@ import json
 import matplotlib.pyplot as plt
 from tools import utils
 
-
 if __name__ == '__main__':
     basedir = 'content/kitti_dataset/dataset'
     sequence = '04'
@@ -52,17 +51,13 @@ if __name__ == '__main__':
         depth_image_stereo = cv2.GaussianBlur(depth_image_stereo, (3, 3), 0)
 
         velo = dataset.get_velo(frame_id)
-        depth_image = utils.pcl_to_image(velo[:, :3], dataset.calib.T_cam2_velo,
+        depth_image = utils.pcl_to_image(velo[:, :3], dataset.calib.T_cam0_velo,
                                          P_cam2, (mask_image.shape[0], mask_image.shape[1]))
         depth_image[:100, :] = depth_image_stereo[:100, :]
-        
-        # Create structuring element for erosion
-        kernel = np.ones((5, 5), np.uint8) 
 
         class_ids = data['classes']
         for i in range(len(class_ids)):
-            mask_i = cv2.erode(np.array(mask_image == i + 1, dtype=np.uint8), kernel)
-            mask = np.where(np.logical_and(mask_i, np.logical_not(np.isnan(depth_image))))
+            mask = np.where(np.logical_and(mask_image == i + 1, np.logical_not(np.isnan(depth_image))))
             point_cloud = np.zeros((4, mask[0].shape[0]))
             for j in range(mask[0].shape[0]):
                 u = mask[1][j]
@@ -78,28 +73,21 @@ if __name__ == '__main__':
             # Ground truth poses are T_w_cam0
             point_cloud = transform.dot(point_cloud)
 
-            if mask[0].shape[0] != 0:
-                min_coord = np.min(point_cloud, axis=1)
-                max_coord = np.max(point_cloud, axis=1)
-                bbox = np.array([min_coord[0:3], max_coord[0:3]]).reshape((6,))
             # plt.imshow(depth_image)
             # plt.show()
             # exit(0)
 
-                pcl_path = os.path.join(out_path, "landmark_f{}_i{}".format(data['image_id'], i))
-                np.save(pcl_path, point_cloud)
+            pcl_path = os.path.join(out_path, "landmark_f{}_i{}".format(data['image_id'], i))
+            np.save(pcl_path, point_cloud)
 
-                bbox_path = os.path.join(out_path, "bbox_f{}_i{}".format(data['image_id'], i))
-                np.save(bbox_path, bbox)
-
-                results.append([frame_id, i, class_ids[i], pcl_path, bbox_path, transform[:3, 3]])
+            results.append([frame_id, i, class_ids[i], pcl_path, transform[:3, 3]])
 
     results.sort()
 
     with open(os.path.join(out_path, "_results.txt"), 'w') as f:
         for result in results:
             f.write(str(result[0]) + " " + str(result[1]) + " " + str(result[2]) + " " + str(result[3]) + " " +
-                    str(result[4]) + " " + str(result[5][0]) + " " + str(result[5][1]) + " " + str(result[5][2]) + "\n")
+                    str(result[4][0]) + " " + str(result[4][1]) + " " + str(result[4][2]) + "\n")
 
     print("Finished.")
 
