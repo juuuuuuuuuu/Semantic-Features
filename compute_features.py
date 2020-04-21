@@ -6,6 +6,34 @@ import json
 import matplotlib.pyplot as plt
 from tools import utils
 
+QUANTILE = True
+
+num_filt = 2
+
+def quantile_filt(u, v, z):
+    """removes points that exceed the 40% quantile in z direction
+    """
+    #upper limit for z
+    upperlim = np.quantile(z, 0.4)
+
+    #cut of all z that are bigger than upperlim
+    z_m = np.where(z > upperlim, np.nan, z)
+    u_m = np.where(z > upperlim, np.nan, u)
+    v_m = np.where(z > upperlim, np.nan, v)
+    u, v, z = expand_concat(u, v, z, u_m, v_m, z_m)
+    return u, v, z
+
+def expand_concat(u, v, z, u_m, v_m, z_m):
+    u = np.expand_dims(u, axis=1)
+    v = np.expand_dims(v, axis=1)
+    z = np.expand_dims(z, axis=1)
+    u_m = np.expand_dims(u_m, axis=1)
+    v_m = np.expand_dims(v_m, axis=1)
+    z_m = np.expand_dims(z_m, axis=1)
+    u = np.concatenate((u, u_m), axis=1)
+    v = np.concatenate((v, v_m), axis=1)
+    z = np.concatenate((z, z_m), axis=1)
+    return u, v, z
 
 if __name__ == '__main__':
     basedir = 'content/kitti_dataset/dataset'
@@ -57,55 +85,41 @@ if __name__ == '__main__':
         depth_image[:100, :] = depth_image_stereo[:100, :]
         
         # Create structuring element for erosion
-        kernel = np.ones((5, 5), np.uint8) 
+        kernel = np.ones((1, 1), np.uint8) 
 
         class_ids = data['classes']
         for i in range(len(class_ids)):
             mask_i = cv2.erode(np.array(mask_image == i + 1, dtype=np.uint8), kernel)
             mask = np.where(np.logical_and(mask_i, np.logical_not(np.isnan(depth_image))))
-            
+
             u = []
             v = []
             z = []
-            for j in range(mask[0].shape[0]):
-                u.append(mask[1][j])
-                v.append(mask[0][j])
-                z.append(depth_image[v[j], u[j]])
-            
+
+            u = mask[1][:]
+            v = mask[0][:]
+            z = depth_image[v, u]
             #Continue if there are less then 5 points per object
-            if len(z)<5:
+            if z.size<5:
                 continue
-
-            u = np.asarray(u)
-            v = np.asarray(v)
-            z = np.asarray(z)
             
-            #upper limit for z
-            upperlim = np.quantile(z, 0.4)
+            if QUANTILE:
+                u, v, z = quantile_filt(u, v, z)
 
-            #cut of all z that are bigger than upperlim
-            z = np.delete(z, np.where(z > upperlim))
-            u = np.delete(u, np.where(z > upperlim))
-            v = np.delete(v, np.where(z > upperlim))
-
-            point_cloud = np.zeros((4, len(z)))
-            for j in range(len(z)):
-                point_cloud[:, j] = np.array([[z[j] * (u[j] - u_0) / f_x],
-                                          [z[j] * (v[j] - v_0) / f_y],
-                                          [z[j]],
-                                          [1.]], dtype=float).reshape((4,))
-
+            point_cloud = np.zeros((num_filt, 4, z.size))
+            for j in range(z.shape[0]):
+                point_cloud[:,0, j] = z[j,:] * (u[j,:] - u_0) / f_x
+                point_cloud[:,1, j] = z[j,:] * (v[j,:] - v_0) / f_y
+                point_cloud[:,2, j] = z[j,:] 
+            
             transform = T_w0_w.dot(dataset.poses[frame_id].dot(T_cam0_cam2))
         
             # Ground truth poses are T_w_cam0
             point_cloud = transform.dot(point_cloud)
 
-
-
-
-            min_coord = np.min(point_cloud, axis=1)
-            max_coord = np.max(point_cloud, axis=1)
-            bbox = np.array([min_coord[0:3], max_coord[0:3]]).reshape((6,))
+            min_coord = np.min(point_cloud, axis=2)
+            max_coord = np.max(point_cloud, axis=2)
+            bbox = np.array([min_coord[0:3], max_coord[0:3]]).reshape((num_filt, 6,-1))
             # plt.imshow(depth_image)
             # plt.show()
             # exit(0)
