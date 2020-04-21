@@ -111,7 +111,9 @@ if __name__ == '__main__':
                 point_cloud[:,0, j] = z[j,:] * (u[j,:] - u_0) / f_x
                 point_cloud[:,1, j] = z[j,:] * (v[j,:] - v_0) / f_y
                 point_cloud[:,2, j] = z[j,:] 
-            
+                point_cloud[:,3, j] = 1.0
+            point_cloud = point_cloud.reshape(num_filt, 4,-1)
+
             transform = T_w0_w.dot(dataset.poses[frame_id].dot(T_cam0_cam2))
         
             # Ground truth poses are T_w_cam0
