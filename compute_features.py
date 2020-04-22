@@ -35,6 +35,13 @@ def expand_concat(u, v, z, u_m, v_m, z_m):
     z = np.concatenate((z, z_m), axis=1)
     return u, v, z
 
+def get_bbox(pcl):
+    bbox = np.zeros((6, num_filt))
+    for m in range(num_filt):
+        min_coord = np.min(point_cloud[0:3,:,m][~np.isnan(point_cloud[0:3,:,m])].reshape(3,-1, 1), axis=1)
+        max_coord = np.max(point_cloud[0:3,:,m][~np.isnan(point_cloud[0:3,:,m])].reshape(3,-1, 1), axis=1)
+        bbox[:,m] = np.array([min_coord, max_coord]).reshape((6,))
+    return bbox
 if __name__ == '__main__':
     basedir = 'content/kitti_dataset/dataset'
     sequence = '04'
@@ -106,30 +113,31 @@ if __name__ == '__main__':
             if QUANTILE:
                 u, v, z = quantile_filt(u, v, z)
 
-            point_cloud = np.zeros((num_filt, 4, z.size))
+            point_cloud = np.zeros((4, np.size(z,0), num_filt))
+            print("pcls: {}".format(point_cloud.shape))
             for j in range(z.shape[0]):
-                point_cloud[:,0, j] = z[j,:] * (u[j,:] - u_0) / f_x
-                point_cloud[:,1, j] = z[j,:] * (v[j,:] - v_0) / f_y
-                point_cloud[:,2, j] = z[j,:] 
-                point_cloud[:,3, j] = 1.0
-            point_cloud = point_cloud.reshape(num_filt, 4,-1)
+                point_cloud[0, j, :] = z[j,:] * (u[j,:] - u_0) / f_x
+                point_cloud[1, j, :] = z[j,:] * (v[j,:] - v_0) / f_y
+                point_cloud[2, j, :] = z[j,:] 
+                point_cloud[3, j, :] = 1.0
 
+            point_cloud = point_cloud.reshape((4, -1))
             transform = T_w0_w.dot(dataset.poses[frame_id].dot(T_cam0_cam2))
-        
+
             # Ground truth poses are T_w_cam0
             point_cloud = transform.dot(point_cloud)
+            point_cloud = point_cloud.reshape((4, -1, num_filt))
+            bbox = get_bbox(point_cloud)
+            print("bbox_shape: {}".format(bbox.shape))
+            # print("bbox: {}".format(bbox))
 
-            min_coord = np.min(point_cloud, axis=2)
-            max_coord = np.max(point_cloud, axis=2)
-            bbox = np.array([min_coord[0:3], max_coord[0:3]]).reshape((num_filt, 6,-1))
             # plt.imshow(depth_image)
             # plt.show()
             # exit(0)
-
             pcl_path = os.path.join(out_path, "landmark_f{}_i{}".format(data['image_id'], i))
-            np.save(pcl_path, point_cloud)
+            np.save(pcl_path, point_cloud, allow_pickle=False)
             bbox_path = os.path.join(out_path, "bbox_f{}_i{}".format(data['image_id'], i))
-            np.save(bbox_path, bbox)
+            np.save(bbox_path, bbox, allow_pickle=False)
             results.append([frame_id, i, class_ids[i], pcl_path, bbox_path, transform[:3, 3]])
 
     results.sort()
