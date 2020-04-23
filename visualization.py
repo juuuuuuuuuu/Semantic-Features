@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 
 
 class LandmarkRenderer:
-    def __init__(self, poses, landmarks, landmark_pcls, landmark_bbox, labels, frame_ids, label_colors, mbboxes):
+    def __init__(self, poses, landmarks, landmark_pcls, landmark_bbox, labels, frame_ids, label_colors, mbboxes, class_id):
         self.poses = poses
         self.landmarks = landmarks
         self.landmark_pcls = landmark_pcls
@@ -28,6 +28,7 @@ class LandmarkRenderer:
         self.render_boxes = False
         self.render_mbboxes = False
         self.mbboxes = mbboxes
+        self.class_id = class_id
 
         self.landmark_render_objects = render_pcls(self.poses,
                                                    self.landmark_pcls,
@@ -36,7 +37,7 @@ class LandmarkRenderer:
                                                    self.label_colors,
                                                    None)
                                                 
-        self.mbboxes_rendered = render_mbboxes(self.label_colors, self.mbboxes)
+        self.mbboxes_rendered = render_mbboxes(self.label_colors, self.mbboxes, self.class_id)
 
         self.ground_grid = render_ground_grid()
 
@@ -198,11 +199,11 @@ def render_landmarks(landmarks, labels, label_colors):
 
     return boxes
 
-def render_mbboxes(label_colors, mbboxes):
+def render_mbboxes(label_colors, mbboxes, class_id):
     merged_boxes = []
-    for mbbox in mbboxes:
+    for i, mbbox in enumerate(mbboxes):
         merged_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=mbbox[0:3], max_bound=mbbox[3:6])
-        merged_box.color = label_colors[499] #random color
+        merged_box.color = label_colors[class_id[i]] #random color
         merged_boxes.append(merged_box)
     return merged_boxes
 
@@ -339,7 +340,8 @@ def load_data(path, n):
     poses = np.array(poses, dtype=float)
     #ToDo change path:
     mergedbboxes = np.load("results/mergedbbox.npy")
-    return poses, pcls, bbox, labels, frame_ids, mergedbboxes
+    class_id = np.load("results/classes_list.npy")
+    return poses, pcls, bbox, labels, frame_ids, mergedbboxes, class_id
 
 
 def load_lines(path):
@@ -356,12 +358,12 @@ def load_lines(path):
 if __name__ == '__main__':
     path = "results/_results.txt"
 
-    poses, pcls, bbox, labels, frame_ids, mergedbboxes = load_data(path, 1000000)
+    poses, pcls, bbox, labels, frame_ids, mergedbboxes, class_id = load_data(path, 1000000)
 
     #pcl_test = [np.load("pcl_test.npy")]
     #labels_test = np.array([0])
     #frame_ids = np.array([0])
 
     print("Number of landmarks is: {}".format(labels.shape[0]))
-    renderer = LandmarkRenderer(poses, None, pcls, bbox, labels, frame_ids, get_colors(), mergedbboxes)
+    renderer = LandmarkRenderer(poses, None, pcls, bbox, labels, frame_ids, get_colors(), mergedbboxes, class_id)
     renderer.run()

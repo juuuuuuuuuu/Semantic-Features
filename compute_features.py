@@ -30,7 +30,7 @@ def quantile_filt(u, v, z):
     """removes points that exceed the 40% quantile in z direction
     """
     #upper limit for z
-    upperlim = np.quantile(z, 0.4)
+    upperlim = np.quantile(z, 0.2)
 
     #cut of all z that are bigger than upperlim
     z_m = np.where(z > upperlim, np.nan, z)
@@ -94,6 +94,7 @@ if __name__ == '__main__':
         bboxes = []
         pcls = []
         transforms = []
+        classes_list = []
 
     for data in all_data['results']:
         frame_id = int(data['image_id'])
@@ -137,7 +138,6 @@ if __name__ == '__main__':
                 u, v, z = quantile_filt(u, v, z)
 
             point_cloud = np.zeros((4, np.size(z,0), num_filt))
-            print("pcls: {}".format(point_cloud.shape))
             for j in range(z.shape[0]):
                 point_cloud[0, j, :] = z[j,:] * (u[j,:] - u_0) / f_x
                 point_cloud[1, j, :] = z[j,:] * (v[j,:] - v_0) / f_y
@@ -151,12 +151,12 @@ if __name__ == '__main__':
             point_cloud = transform.dot(point_cloud)
             point_cloud = point_cloud.reshape((4, -1, num_filt))
             bbox = get_bbox(point_cloud)
-            print("bbox_shape: {}".format(bbox.shape))
 
             if Mergebboxes:
                 bboxes.append(bbox)
                 pcls.append(point_cloud)
                 transforms.append(transform)
+                classes_list.append(class_ids[i])
         
             #Save pcls and bboxes
             pcl_path = os.path.join(out_path, "landmark_f{}_i{}".format(data['image_id'], i))
@@ -178,7 +178,7 @@ if __name__ == '__main__':
 
         for i in range(len(pcls)):
             for j in range(len(pcls)):
-                if isOverlapping3D(npbboxes[i,:,mbboxnr],npbboxes[j,:,mbboxnr]):
+                if isOverlapping3D(npbboxes[i,:,mbboxnr],npbboxes[j,:,mbboxnr]) and classes_list[i] == classes_list[j]:
                     index[i,j] = 1
 
         # #Find for all intersecting bboxes minimum and maximum
@@ -188,10 +188,14 @@ if __name__ == '__main__':
                 maxoverlappingbboxes = npbboxes[np.where(index[i,:]==1),3:6, mbboxnr]
                 mergedbboxes[i][0:3] = np.min(minoverlappingbboxes, axis=1)
                 mergedbboxes[i][3:6] = np.max(maxoverlappingbboxes, axis=1)
-
-        #Save pcls and mergedbboxes
+            else:
+                mergedbboxes[i] = npbboxes[i,0:6,mbboxnr]
+        
+        #Save pcls and mergedbboxes 
         mergedbbox_path = os.path.join(out_path, "mergedbbox")
         np.save(mergedbbox_path, mergedbboxes, allow_pickle=False)
+        classes_list_path = os.path.join(out_path, "classes_list")
+        np.save(classes_list_path, classes_list, allow_pickle=False)
 
 
     results.sort()
