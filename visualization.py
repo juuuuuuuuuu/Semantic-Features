@@ -9,22 +9,27 @@ import matplotlib.pyplot as plt
 
 
 class LandmarkRenderer:
-    def __init__(self, poses, landmarks, landmark_pcls, labels, frame_ids, label_colors):
+    def __init__(self, poses, landmarks, landmark_pcls, landmark_bbox, labels, frame_ids, label_colors):
         self.poses = poses
         self.landmarks = landmarks
         self.landmark_pcls = landmark_pcls
+        self.landmark_bbox = landmark_bbox
+
         self.lm_labels = labels
         self.lm_frame_ids = frame_ids
         self.label_colors = label_colors
         self.unique_frame_ids = np.unique(frame_ids)
         self.frame_count = len(self.unique_frame_ids)
         self.pointer = 0
+        self.method = 0
+        self.num_methods = landmark_pcls[0].shape[2]
         self.render_single_frame = False
         self.render_pose_connect = False
         self.render_boxes = False
 
         self.landmark_render_objects = render_pcls(self.poses,
                                                    self.landmark_pcls,
+                                                   self.landmark_bbox,
                                                    self.lm_labels,
                                                    self.label_colors,
                                                    None)
@@ -41,13 +46,16 @@ class LandmarkRenderer:
         vis.register_key_callback(ord("A"), self.get_toggle_show_all_callback())
         # vis.register_key_callback(ord("N"), self.get_toggle_connect_callback())
         vis.register_key_callback(ord("S"), self.get_screen_cap_callback())
+        vis.register_key_callback(ord("B"), self.get_switch_method())
 
         print("Press 'A' to toggle between show all and show only one frame.")
         print("Press 'F' to switch to next frame.")
         print("Press 'D' to switch to previous frame.")
         print("Press 'S' to capture screenshot.")
-
-        for geometries in self.landmark_render_objects:
+        print("Press B to switch postprocessing method.")
+        print("num_methods: {}".format(self.num_methods))
+        for i, geometries in enumerate(self.landmark_render_objects):
+            geometries = geometries[0::self.num_methods][0]
             for geometry in geometries:
                 vis.add_geometry(geometry)
 
@@ -88,12 +96,14 @@ class LandmarkRenderer:
         if self.render_single_frame:
             for i in range(len(self.landmark_render_objects)):
                 if self.lm_frame_ids[i] == self.unique_frame_ids[self.pointer]:
-                    for geometry in self.landmark_render_objects[i]:
+                    for geometry in self.landmark_render_objects[i][self.method::self.num_methods][0]:
                         vis.add_geometry(geometry)
         else:
             for geometries in self.landmark_render_objects:
-                for geometry in geometries:
+                for geometry in geometries[self.method::self.num_methods][0]:
+                    print("geometry in else: {}".format(geometry))
                     vis.add_geometry(geometry)
+
 
         vis.add_geometry(self.ground_grid)
 
@@ -145,6 +155,15 @@ class LandmarkRenderer:
 
         return switch_index
 
+    def get_switch_method(self):
+        def switch_method(vis):
+            if self.method < self.num_methods - 1:
+                self.method += 1
+            else:
+                self.method = 0
+            self.update_render(vis)
+            print("Now showing method {}".format(self.method))
+        return switch_method
 
 def render_landmarks(landmarks, labels, label_colors):
     size = 0.5
@@ -159,26 +178,81 @@ def render_landmarks(landmarks, labels, label_colors):
 
     return boxes
 
+def isOverlapping1D(xmin1, xmin2, xmax1, xmax2) :
+    if xmax1 >= xmin2 and xmax2 >= xmin1:
+        return True
+    else:
+        return False
 
-def render_pcls(poses, pcls, labels, label_colors, indices):
+def isOverlapping3D(box1, box2):
+    if isOverlapping1D(box1[0], box2[0], box1[3], box2[3]) and isOverlapping1D(box1[1], box2[1], box1[4], box2[4]) and isOverlapping1D(box1[2], box2[2], box1[5], box2[5]):
+        return True
+    else:
+        return False
+
+def render_pcls(poses, pcls, bbox, labels, label_colors, indices):
     geometries = []
+    bbox = np.asarray(bbox)
 
+    #Adjaceny matrix of bbox, if bbox intersect that entry gets 1, otherwise 0
+    index = np.zeros((len(pcls), len(pcls)))
+
+    mergedbboxes = np.zeros((len(pcls),6))
+
+    # for i in range(len(pcls)):
+    #     for j in range(len(pcls)):
+    #         if isOverlapping3D(bbox[i],bbox[j]):
+    #             index[i,j] = 1
+    
+        
     for i in range(len(pcls)):
-        if indices and not np.isin(indices, i).any():
-            continue
+        geometries_m = []
+        for m in range(pcls[0].shape[2]):
+        #     if indices and not np.isin(indices, i).any():
+        #         continue
+            
+            # Iterate trough all the different filtered or not filtered pointclouds
+            
+            # pcl = pcls[i][m,:3, :][~np.isnan(pcls[i][m,:3, :])].reshape((-1,3))
+            pcl = pcls[i][:3, :, m]
+            # pcl = pcl[~np.isnan(pcl)].reshape((-1, 3))
 
-        pcl = o3d.geometry.PointCloud(
-            points=o3d.utility.Vector3dVector(np.transpose(pcls[i][:3, :]).astype(float))
-        )
-        pcl.colors = o3d.utility.Vector3dVector([label_colors[labels[i]] for j in range(pcls[i].shape[1])])
+            # print(pcl)
+            pcl = o3d.geometry.PointCloud(
+                points=o3d.utility.Vector3dVector(np.transpose(pcl).astype(float))
+            )
+            pcl.colors = o3d.utility.Vector3dVector([label_colors[labels[i]] for j in range(pcls[i].shape[1])])
 
-        size = 2
-        size_vec = np.array([size/2., size/2., size/2.])
-        pose_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=poses[i, :]-size_vec, max_bound=poses[i, :]+size_vec)
-        pose_box.color = np.array([0.5, 1.0, 0.5])
+            size = 2
+            size_vec = np.array([size/2., size/2., size/2.])
+            pose_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=poses[i, :]-size_vec, max_bound=poses[i, :]+size_vec)        
+            pose_box.color = np.array([0.5, 1.0, 0.5])
+            
+            landmark_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=bbox[i][0:3,m], max_bound=bbox[i][3:6,m])
+            landmark_box.color = label_colors[labels[i]]
 
-        geometries.append([pcl, pose_box])
+            # if np.sum(index[i]) == 0:
+            #     merged_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=mergedbboxes[i][0:3], max_bound=mergedbboxes[i][3:6])
+            #     merged_box.color = label_colors[499] #random color
+            #     #geometries.append([pcl, pose_box, landmark_box, merged_box])
+            #     geometries.append([pcl, pose_box, merged_box])
+            #     continue
 
+            # #Find for all intersecting bboxes minimum and maximum
+            # # print(np.where(index[i,:]==1))
+            # minoverlappingbboxes = bbox[np.where(index[i,:]==1),0:3]
+            # # print(minoverlappingbboxes)
+            # maxoverlappingbboxes = bbox[np.where(index[i,:]==1),3:6]
+            # mergedbboxes[i][0:3] = np.min(minoverlappingbboxes, axis=1)
+            # mergedbboxes[i][3:6] = np.max(maxoverlappingbboxes, axis=1)
+            # merged_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=mergedbboxes[i][0:3], max_bound=mergedbboxes[i][3:6])
+            # merged_box.color = label_colors[499] #random color
+            geometries_m.append([pcl, pose_box, landmark_box])
+            # geometries_m.append([pcl, pose_box])
+        geometries.append(geometries_m)
+            # geometries.append([pcl, pose_box, merged_box])
+
+    # print(mergedbboxes)
     return geometries
 
 
@@ -242,20 +316,22 @@ def load_data(path, n):
     data = pd.read_csv(path, sep=" ", header=None)
     data = data.values
     pcls = []
+    bbox = []
     labels = []
     frame_ids = []
     poses = []
 
     for i in range(min(n, data.shape[0])):
         pcls.append(np.load(data[i, 3] + ".npy"))
+        bbox.append(np.load(data[i, 4] + ".npy"))
         labels.append(int(data[i, 2]))
         frame_ids.append(int(data[i, 0]))
-        poses.append(data[i, 4:])
-
+        poses.append(data[i, 5:])
+    
     labels = np.array(labels, dtype=int)
     frame_ids = np.array(frame_ids, dtype=int)
     poses = np.array(poses, dtype=float)
-    return poses, pcls, labels, frame_ids
+    return poses, pcls, bbox, labels, frame_ids
 
 
 def load_lines(path):
@@ -267,15 +343,17 @@ def load_lines(path):
     return data_lines
 
 
+
+
 if __name__ == '__main__':
     path = "results/_results.txt"
 
-    poses, pcls, labels, frame_ids = load_data(path, 1000000)
+    poses, pcls, bbox, labels, frame_ids = load_data(path, 1000000)
 
     #pcl_test = [np.load("pcl_test.npy")]
     #labels_test = np.array([0])
     #frame_ids = np.array([0])
 
     print("Number of landmarks is: {}".format(labels.shape[0]))
-    renderer = LandmarkRenderer(poses, None, pcls, labels, frame_ids, get_colors())
+    renderer = LandmarkRenderer(poses, None, pcls, bbox, labels, frame_ids, get_colors())
     renderer.run()
