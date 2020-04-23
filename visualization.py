@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 
 
 class LandmarkRenderer:
-    def __init__(self, poses, landmarks, landmark_pcls, landmark_bbox, labels, frame_ids, label_colors):
+    def __init__(self, poses, landmarks, landmark_pcls, landmark_bbox, labels, frame_ids, label_colors, mbboxes):
         self.poses = poses
         self.landmarks = landmarks
         self.landmark_pcls = landmark_pcls
@@ -26,6 +26,8 @@ class LandmarkRenderer:
         self.render_single_frame = False
         self.render_pose_connect = False
         self.render_boxes = False
+        self.render_mbboxes = False
+        self.mbboxes = mbboxes
 
         self.landmark_render_objects = render_pcls(self.poses,
                                                    self.landmark_pcls,
@@ -33,6 +35,9 @@ class LandmarkRenderer:
                                                    self.lm_labels,
                                                    self.label_colors,
                                                    None)
+                                                
+        self.mbboxes_rendered = render_mbboxes(self.label_colors, self.mbboxes)
+
         self.ground_grid = render_ground_grid()
 
     def run(self):
@@ -46,13 +51,16 @@ class LandmarkRenderer:
         vis.register_key_callback(ord("A"), self.get_toggle_show_all_callback())
         # vis.register_key_callback(ord("N"), self.get_toggle_connect_callback())
         vis.register_key_callback(ord("S"), self.get_screen_cap_callback())
-        vis.register_key_callback(ord("B"), self.get_switch_method())
+        vis.register_key_callback(ord("G"), self.get_switch_method())
+        vis.register_key_callback(ord("H"), self.get_show_mbboxes())
+        
 
         print("Press 'A' to toggle between show all and show only one frame.")
         print("Press 'F' to switch to next frame.")
         print("Press 'D' to switch to previous frame.")
         print("Press 'S' to capture screenshot.")
-        print("Press B to switch postprocessing method.")
+        print("Press G to switch postprocessing method.")
+        print("Press h to show merged bounding boxes.")
         print("num_methods: {}".format(self.num_methods))
         for i, geometries in enumerate(self.landmark_render_objects):
             geometries = geometries[0::self.num_methods][0]
@@ -69,6 +77,11 @@ class LandmarkRenderer:
         vis.clear_geometries()
 
         indices = np.where(self.lm_frame_ids == self.unique_frame_ids[self.pointer])
+
+        if self.render_mbboxes:
+            for mbbox in self.mbboxes_rendered:
+                vis.add_geometry(mbbox)
+
 
         if self.render_boxes:
             if self.render_single_frame:
@@ -101,7 +114,6 @@ class LandmarkRenderer:
         else:
             for geometries in self.landmark_render_objects:
                 for geometry in geometries[self.method::self.num_methods][0]:
-                    print("geometry in else: {}".format(geometry))
                     vis.add_geometry(geometry)
 
 
@@ -165,6 +177,14 @@ class LandmarkRenderer:
             print("Now showing method {}".format(self.method))
         return switch_method
 
+    def get_show_mbboxes(self):
+        def show_mbboxes(vis):
+            self.render_mbboxes = not self.render_mbboxes
+            print('Switched shwoing method of mbboxes')
+            self.update_render(vis)
+        return show_mbboxes
+
+
 def render_landmarks(landmarks, labels, label_colors):
     size = 0.5
     size_vec = np.array([size/2., size/2., size/2.])
@@ -178,32 +198,18 @@ def render_landmarks(landmarks, labels, label_colors):
 
     return boxes
 
-def isOverlapping1D(xmin1, xmin2, xmax1, xmax2) :
-    if xmax1 >= xmin2 and xmax2 >= xmin1:
-        return True
-    else:
-        return False
+def render_mbboxes(label_colors, mbboxes):
+    merged_boxes = []
+    for mbbox in mbboxes:
+        merged_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=mbbox[0:3], max_bound=mbbox[3:6])
+        merged_box.color = label_colors[499] #random color
+        merged_boxes.append(merged_box)
+    return merged_boxes
 
-def isOverlapping3D(box1, box2):
-    if isOverlapping1D(box1[0], box2[0], box1[3], box2[3]) and isOverlapping1D(box1[1], box2[1], box1[4], box2[4]) and isOverlapping1D(box1[2], box2[2], box1[5], box2[5]):
-        return True
-    else:
-        return False
 
 def render_pcls(poses, pcls, bbox, labels, label_colors, indices):
     geometries = []
-    bbox = np.asarray(bbox)
 
-    #Adjaceny matrix of bbox, if bbox intersect that entry gets 1, otherwise 0
-    index = np.zeros((len(pcls), len(pcls)))
-
-    mergedbboxes = np.zeros((len(pcls),6))
-
-    # for i in range(len(pcls)):
-    #     for j in range(len(pcls)):
-    #         if isOverlapping3D(bbox[i],bbox[j]):
-    #             index[i,j] = 1
-    
         
     for i in range(len(pcls)):
         geometries_m = []
@@ -331,7 +337,9 @@ def load_data(path, n):
     labels = np.array(labels, dtype=int)
     frame_ids = np.array(frame_ids, dtype=int)
     poses = np.array(poses, dtype=float)
-    return poses, pcls, bbox, labels, frame_ids
+    #ToDo change path:
+    mergedbboxes = np.load("results/mergedbbox.npy")
+    return poses, pcls, bbox, labels, frame_ids, mergedbboxes
 
 
 def load_lines(path):
@@ -348,12 +356,12 @@ def load_lines(path):
 if __name__ == '__main__':
     path = "results/_results.txt"
 
-    poses, pcls, bbox, labels, frame_ids = load_data(path, 1000000)
+    poses, pcls, bbox, labels, frame_ids, mergedbboxes = load_data(path, 1000000)
 
     #pcl_test = [np.load("pcl_test.npy")]
     #labels_test = np.array([0])
     #frame_ids = np.array([0])
 
     print("Number of landmarks is: {}".format(labels.shape[0]))
-    renderer = LandmarkRenderer(poses, None, pcls, bbox, labels, frame_ids, get_colors())
+    renderer = LandmarkRenderer(poses, None, pcls, bbox, labels, frame_ids, get_colors(), mergedbboxes)
     renderer.run()

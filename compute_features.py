@@ -7,8 +7,24 @@ import matplotlib.pyplot as plt
 from tools import utils
 
 QUANTILE = True
+Mergebboxes = True
+
+#Choose number of filter for mergedbbox
+mbboxnr = 1
 
 num_filt = 2
+
+def isOverlapping1D(xmin1, xmin2, xmax1, xmax2) :
+    if xmax1 >= xmin2 and xmax2 >= xmin1:
+        return True
+    else:
+        return False
+
+def isOverlapping3D(box1, box2):
+    if isOverlapping1D(box1[0], box2[0], box1[3], box2[3]) and isOverlapping1D(box1[1], box2[1], box1[4], box2[4]) and isOverlapping1D(box1[2], box2[2], box1[5], box2[5]):
+        return True
+    else:
+        return False
 
 def quantile_filt(u, v, z):
     """removes points that exceed the 40% quantile in z direction
@@ -73,6 +89,12 @@ if __name__ == '__main__':
 
     results = []
 
+#store bboxes and pcls
+    if Mergebboxes:
+        bboxes = []
+        pcls = []
+        transforms = []
+
     for data in all_data['results']:
         frame_id = int(data['image_id'])
         print("Processing frame " + data['image_id'] + '.')
@@ -106,6 +128,7 @@ if __name__ == '__main__':
             u = mask[1][:]
             v = mask[0][:]
             z = depth_image[v, u]
+
             #Continue if there are less then 5 points per object
             if z.size<5:
                 continue
@@ -129,19 +152,49 @@ if __name__ == '__main__':
             point_cloud = point_cloud.reshape((4, -1, num_filt))
             bbox = get_bbox(point_cloud)
             print("bbox_shape: {}".format(bbox.shape))
-            # print("bbox: {}".format(bbox))
 
-            # plt.imshow(depth_image)
-            # plt.show()
-            # exit(0)
+            if Mergebboxes:
+                bboxes.append(bbox)
+                pcls.append(point_cloud)
+                transforms.append(transform)
+        
+            #Save pcls and bboxes
             pcl_path = os.path.join(out_path, "landmark_f{}_i{}".format(data['image_id'], i))
             np.save(pcl_path, point_cloud, allow_pickle=False)
             bbox_path = os.path.join(out_path, "bbox_f{}_i{}".format(data['image_id'], i))
             np.save(bbox_path, bbox, allow_pickle=False)
             results.append([frame_id, i, class_ids[i], pcl_path, bbox_path, transform[:3, 3]])
 
-    results.sort()
+    
 
+    if Mergebboxes:
+        npbboxes = np.asarray(bboxes)
+
+        #Adjaceny matrix of bbox, if bbox intersect that entry gets 1, otherwise 0
+        index = np.zeros((len(pcls), len(pcls)))
+
+        #All merged bboxes
+        mergedbboxes = np.zeros((len(pcls),6))
+
+        for i in range(len(pcls)):
+            for j in range(len(pcls)):
+                if isOverlapping3D(npbboxes[i,:,mbboxnr],npbboxes[j,:,mbboxnr]):
+                    index[i,j] = 1
+
+        # #Find for all intersecting bboxes minimum and maximum
+        for i in range(len(pcls)):
+            if sum(index[i,:]) != 0:
+                minoverlappingbboxes = npbboxes[np.where(index[i,:]==1),0:3,mbboxnr]
+                maxoverlappingbboxes = npbboxes[np.where(index[i,:]==1),3:6, mbboxnr]
+                mergedbboxes[i][0:3] = np.min(minoverlappingbboxes, axis=1)
+                mergedbboxes[i][3:6] = np.max(maxoverlappingbboxes, axis=1)
+
+        #Save pcls and mergedbboxes
+        mergedbbox_path = os.path.join(out_path, "mergedbbox")
+        np.save(mergedbbox_path, mergedbboxes, allow_pickle=False)
+
+
+    results.sort()
     with open(os.path.join(out_path, "_results.txt"), 'w') as f:
         for result in results:
             f.write(str(result[0]) + " " + str(result[1]) + " " + str(result[2]) + " " + str(result[3]) + " " +
