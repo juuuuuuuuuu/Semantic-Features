@@ -222,13 +222,15 @@ def render_pcls(poses, pcls, bbox, labels, label_colors, indices):
             
             # pcl = pcls[i][m,:3, :][~np.isnan(pcls[i][m,:3, :])].reshape((-1,3))
             pcl = pcls[i][:3, :, m]
-            pcl = pcl[~np.isnan(pcl)].reshape((3, -1))
+            empty_ind = ~np.isnan(pcl)
 
-            # print(pcl)
+            pcl_i = pcl[empty_ind].reshape((3, -1))
+            if pcl_i.size == 0:
+                print("empty")
             pcl = o3d.geometry.PointCloud(
-                points=o3d.utility.Vector3dVector(np.transpose(pcl).astype(float))
+                points=o3d.utility.Vector3dVector(np.transpose(pcl_i).astype(float))
             )
-            pcl.colors = o3d.utility.Vector3dVector([label_colors[labels[i]] for j in range(pcls[i].shape[1])])
+            pcl.colors = o3d.utility.Vector3dVector([label_colors[labels[i]] for j in range(pcl_i.shape[1])])
 
             size = 2
             size_vec = np.array([size/2., size/2., size/2.])
