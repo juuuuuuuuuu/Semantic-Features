@@ -222,7 +222,7 @@ def render_pcls(poses, pcls, bbox, labels, label_colors, indices):
             
             # pcl = pcls[i][m,:3, :][~np.isnan(pcls[i][m,:3, :])].reshape((-1,3))
             pcl = pcls[i][:3, :, m]
-            # pcl = pcl[~np.isnan(pcl)].reshape((-1, 3))
+            pcl = pcl[~np.isnan(pcl)].reshape((3, -1))
 
             # print(pcl)
             pcl = o3d.geometry.PointCloud(
