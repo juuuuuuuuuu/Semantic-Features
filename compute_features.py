@@ -4,15 +4,19 @@ import cv2
 import pykitti
 import json
 import matplotlib.pyplot as plt
+from sklearn import linear_model
+from skimage.measure import LineModelND, ransac
+
 from tools import utils
 
 QUANTILE = True
+FIT_LINE = True
 Mergebboxes = True
 
 #Choose number of filter for mergedbbox
 mbboxnr = 1
 
-num_filt = 2
+num_filt = 3
 
 def isOverlapping1D(xmin1, xmin2, xmax1, xmax2) :
     if xmax1 >= xmin2 and xmax2 >= xmin1:
@@ -30,19 +34,67 @@ def quantile_filt(u, v, z):
     """removes points that exceed the 40% quantile in z direction
     """
     #upper limit for z
+    if u.ndim > 1:
+        u_p = u[:,0]
+        v_p = v[:,0]
+        z_p = z[:,0]
+    else:
+        u_p, v_p, z_p = u, v, z
     upperlim = np.quantile(z, 0.2)
 
     #cut of all z that are bigger than upperlim
-    z_m = np.where(z > upperlim, np.nan, z)
-    u_m = np.where(z > upperlim, np.nan, u)
-    v_m = np.where(z > upperlim, np.nan, v)
+    z_m = np.where(z_p > upperlim, np.nan, z_p)
+    u_m = np.where(z_p > upperlim, np.nan, u_p)
+    v_m = np.where(z_p > upperlim, np.nan, v_p)
     u, v, z = expand_concat(u, v, z, u_m, v_m, z_m)
     return u, v, z
 
+def fit_line(pcl, class_id):
+    """ fits a line to pointclouds, that are labeled as pole"""
+    # camera coordinates
+    x, y, z = pcl
+    if class_id == 10:
+        # Get indices of data
+        indices = list(range(x.shape[0]))
+        # Define minimum number of iterations
+        N = int(len(x)*0.5)
+        d = len(x) *0.2
+        error_opt = np.Inf
+        inlier_opt = np.array([False]*len(x))
+        # Subsample minimum number of datapoints to create model 
+        subsets = np.random.choice(indices, N)
+        for subset in subsets:
+            # Compute errors
+            x_error = abs(x - x[subset])
+            z_error = abs(z - z[subset])
+            # Define error thresholds
+            x_tresh = 0.2
+            z_thresh = 0.4
+
+            inlier_mask = np.logical_and(x_error < x_tresh, z_error < z_thresh)
+            if inlier_mask.sum() > d:
+                x_model = x[inlier_mask].mean()
+                z_model = z[inlier_mask].mean()
+
+                x_error = abs(x_model - x[inlier_mask])
+                z_error = abs(z_model - z[inlier_mask])
+                error = (x_error**2 + z_error**2).mean()**0.5
+                if error < error_opt:
+                    error_opt = error
+                    inlier_opt = inlier_mask
+        x = np.where(inlier_opt, x, np.nan)
+        y = np.where(inlier_opt, y, np.nan)
+        z = np.where(inlier_opt, z, np.nan)
+        
+        return x, y, z
+    else:
+        return x, y, z
+
 def expand_concat(u, v, z, u_m, v_m, z_m):
-    u = np.expand_dims(u, axis=1)
-    v = np.expand_dims(v, axis=1)
-    z = np.expand_dims(z, axis=1)
+    if u.ndim == 1:    
+        u = np.expand_dims(u, axis=1)
+        v = np.expand_dims(v, axis=1)
+        z = np.expand_dims(z, axis=1)
     u_m = np.expand_dims(u_m, axis=1)
     v_m = np.expand_dims(v_m, axis=1)
     z_m = np.expand_dims(z_m, axis=1)
@@ -54,9 +106,13 @@ def expand_concat(u, v, z, u_m, v_m, z_m):
 def get_bbox(pcl):
     bbox = np.zeros((6, num_filt))
     for m in range(num_filt):
-        min_coord = np.min(point_cloud[0:3,:,m][~np.isnan(point_cloud[0:3,:,m])].reshape(3,-1, 1), axis=1)
-        max_coord = np.max(point_cloud[0:3,:,m][~np.isnan(point_cloud[0:3,:,m])].reshape(3,-1, 1), axis=1)
-        bbox[:,m] = np.array([min_coord, max_coord]).reshape((6,))
+        pcl = point_cloud[0:3,:,m][~np.isnan(point_cloud[0:3,:,m])]
+        if pcl.size > 0:
+            min_coord = np.min(point_cloud[0:3,:,m][~np.isnan(point_cloud[0:3,:,m])].reshape(3,-1, 1), axis=1)
+            max_coord = np.max(point_cloud[0:3,:,m][~np.isnan(point_cloud[0:3,:,m])].reshape(3,-1, 1), axis=1)
+            bbox[:,m] = np.array([min_coord, max_coord]).reshape((6,))
+        else:
+            bbox[:,m] = np.array([np.nan]*6).reshape((6,))
     return bbox
 if __name__ == '__main__':
     basedir = 'content/kitti_dataset/dataset'
@@ -137,6 +193,9 @@ if __name__ == '__main__':
             if QUANTILE:
                 u, v, z = quantile_filt(u, v, z)
 
+            if FIT_LINE:
+                u, v, z = expand_concat(u, v, z, u[:,1], v[:,1], z[:,1])
+
             point_cloud = np.zeros((4, np.size(z,0), num_filt))
             for j in range(z.shape[0]):
                 point_cloud[0, j, :] = z[j,:] * (u[j,:] - u_0) / f_x
@@ -144,12 +203,14 @@ if __name__ == '__main__':
                 point_cloud[2, j, :] = z[j,:] 
                 point_cloud[3, j, :] = 1.0
 
+            point_cloud[0:3, :, -1] = fit_line(point_cloud[0:3,:, 0], class_ids[i])
             point_cloud = point_cloud.reshape((4, -1))
             transform = T_w0_w.dot(dataset.poses[frame_id].dot(T_cam0_cam2))
 
             # Ground truth poses are T_w_cam0
             point_cloud = transform.dot(point_cloud)
             point_cloud = point_cloud.reshape((4, -1, num_filt))
+
             bbox = get_bbox(point_cloud)
 
             if Mergebboxes:

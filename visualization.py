@@ -225,8 +225,7 @@ def render_pcls(poses, pcls, bbox, labels, label_colors, indices):
             empty_ind = ~np.isnan(pcl)
 
             pcl_i = pcl[empty_ind].reshape((3, -1))
-            if pcl_i.size == 0:
-                print("empty")
+
             pcl = o3d.geometry.PointCloud(
                 points=o3d.utility.Vector3dVector(np.transpose(pcl_i).astype(float))
             )
@@ -237,8 +236,10 @@ def render_pcls(poses, pcls, bbox, labels, label_colors, indices):
             pose_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=poses[i, :]-size_vec, max_bound=poses[i, :]+size_vec)        
             pose_box.color = np.array([0.5, 1.0, 0.5])
             
-            landmark_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=bbox[i][0:3,m], max_bound=bbox[i][3:6,m])
-            landmark_box.color = label_colors[labels[i]]
+            bbox_i = bbox[i][~np.isnan(bbox[i])]
+            if bbox_i.size > 0:
+                landmark_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=bbox[i][0:3,m], max_bound=bbox[i][3:6,m])
+                landmark_box.color = label_colors[labels[i]]
 
             # if np.sum(index[i]) == 0:
             #     merged_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=mergedbboxes[i][0:3], max_bound=mergedbboxes[i][3:6])
