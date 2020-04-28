@@ -7,6 +7,7 @@ import math
 import matplotlib.pyplot as plt
 from sklearn import linear_model
 from skimage.measure import LineModelND, ransac
+from operator import itemgetter
 
 from tools import utils
 
@@ -199,19 +200,26 @@ if __name__ == '__main__':
     with open("results.json") as json_file:
         all_data = json.load(json_file)
 
+    #sorting alldata for image_id
+    all_data = all_data['results']
+    all_data_sort = []
+    for x in sorted(all_data, key = itemgetter('image_id')):
+        all_data_sort.append(x)
+
     path = "content/kitti_dataset/dataset/sequences/04"
     out_path = "results"
 
     results = []
+    mergedbboxes = []
+    mergedclass_list = []
+    prevframe_bboxes = []
+    preframe_classes = []
 
-#store bboxes and pcls
-    if Mergebboxes:
-        bboxes = []
-        pcls = []
-        transforms = []
-        classes_list = []
-
-    for data in all_data['results']:
+    for data in all_data_sort:
+        #store bboxes and classes_ids
+        if Mergebboxes:
+            bboxes = []
+            classes_list = []
         frame_id = int(data['image_id'])
         print("Processing frame " + data['image_id'] + '.')
 
@@ -279,9 +287,18 @@ if __name__ == '__main__':
 
             if Mergebboxes:
                 bboxes.append(bbox)
-                pcls.append(point_cloud)
-                transforms.append(transform)
                 classes_list.append(class_ids[i])
+                overlap = False
+                #Check if bbox overlaps with one of the bboxes of prev frame, if they do, dont add bbox
+                for m, prev_bbox in enumerate(prevframe_bboxes):
+                    if isOverlapping3D(bbox[:,mbboxnr], prev_bbox[:,mbboxnr]) and class_ids[i] == preframe_classes[m]:
+                        overlap = True
+                if not overlap:
+                    mergedbboxes.append(bbox[:,mbboxnr])
+                    mergedclass_list.append(class_ids[i])
+            
+                    
+                
         
             #Save pcls and bboxes
             pcl_path = os.path.join(out_path, "landmark_f{}_i{}".format(data['image_id'], i))
@@ -290,37 +307,18 @@ if __name__ == '__main__':
             np.save(bbox_path, bbox, allow_pickle=False)
             results.append([frame_id, i, class_ids[i], pcl_path, bbox_path, transform[:3, 3]])
 
-    
+        prevframe_bboxes = bboxes
+        preframe_classes = classes_list
 
     if Mergebboxes:
-        npbboxes = np.asarray(bboxes)
-
-        #Adjaceny matrix of bbox, if bbox intersect that entry gets 1, otherwise 0
-        index = np.zeros((len(pcls), len(pcls)))
-
         #All merged bboxes
-        mergedbboxes = np.zeros((len(pcls),6))
-
-        for i in range(len(pcls)):
-            for j in range(len(pcls)):
-                if isOverlapping3D(npbboxes[i,:,mbboxnr],npbboxes[j,:,mbboxnr]) and classes_list[i] == classes_list[j]:
-                    index[i,j] = 1
-
-        # #Find for all intersecting bboxes minimum and maximum
-        for i in range(len(pcls)):
-            if sum(index[i,:]) != 0:
-                minoverlappingbboxes = npbboxes[np.where(index[i,:]==1),0:3,mbboxnr]
-                maxoverlappingbboxes = npbboxes[np.where(index[i,:]==1),3:6, mbboxnr]
-                mergedbboxes[i][0:3] = np.min(minoverlappingbboxes, axis=1)
-                mergedbboxes[i][3:6] = np.max(maxoverlappingbboxes, axis=1)
-            else:
-                mergedbboxes[i] = npbboxes[i,0:6,mbboxnr]
+        mergedbboxes = np.asarray(mergedbboxes)
         
         #Save pcls and mergedbboxes 
         mergedbbox_path = os.path.join(out_path, "mergedbbox")
         np.save(mergedbbox_path, mergedbboxes, allow_pickle=False)
         classes_list_path = os.path.join(out_path, "classes_list")
-        np.save(classes_list_path, classes_list, allow_pickle=False)
+        np.save(classes_list_path, mergedclass_list, allow_pickle=False)
 
 
     results.sort()
