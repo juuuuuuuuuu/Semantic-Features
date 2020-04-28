@@ -3,6 +3,7 @@ import os
 import cv2
 import pykitti
 import json
+import math
 import matplotlib.pyplot as plt
 from sklearn import linear_model
 from skimage.measure import LineModelND, ransac
@@ -11,12 +12,13 @@ from tools import utils
 
 QUANTILE = True
 FIT_LINE = True
+FIT_BOX = True
 Mergebboxes = True
 
 #Choose number of filter for mergedbbox
 mbboxnr = 1
 
-num_filt = 3
+num_filt = 4
 
 def isOverlapping1D(xmin1, xmin2, xmax1, xmax2) :
     if xmax1 >= xmin2 and xmax2 >= xmin1:
@@ -89,6 +91,61 @@ def fit_line(pcl, class_id):
         return x, y, z
     else:
         return x, y, z
+
+def fit_box(pcl, class_id):
+    """ fits a line to pointclouds, that are labeled as pole"""
+    # camera coordinates
+    x, y, z = pcl
+    # Get indices of data
+    indices = list(range(x.shape[0]))
+    # Define minimum number of iterations N
+    # N = int(math.log(1-p)/math.log(1-(1-e)**2))
+    N = int(0.5 * len(x))
+    max_iter = 20
+    # Define error thresholds
+    e = 0.1
+    density_opt = 0
+    inlier_opt = np.array([False]*len(x))
+    # Subsample minimum number of datapoints to create model 
+
+    subsets = np.random.choice(indices, N)
+
+    for subset in subsets:
+        d = 1
+        density = [0]
+        # Compute bbox
+        box_min = pcl[:,subset].reshape(3,-1)
+        box_max = pcl[:,subset].reshape(3,-1)
+        # print(box_min.shape)
+        box_min = box_min - e
+        box_max = box_max + e
+        # Compute inliers
+        inlier_mask = np.logical_and(np.all(pcl >= box_min, axis=0), np.all(pcl <= box_max, axis=0))
+        # iteratively extend box size
+        i = 0
+        while inlier_mask.sum() > d and i < max_iter:
+            box_min = np.min(pcl[:,inlier_mask], axis=1).reshape(3,-1)
+            box_max = np.max(pcl[:,inlier_mask], axis=1).reshape(3,-1)
+            vol = (box_max - box_min).prod()
+            d = inlier_mask.sum()
+            if d > len(x) * 0.2:
+                density.append(d/vol)
+                inlier_sample = inlier_mask
+            # Increase box size
+            box_min = box_min - e
+            box_max = box_max + e
+            inlier_mask = np.logical_and(np.all(pcl > box_min, axis=0), np.all(pcl < box_max, axis=0))
+            i += 1
+
+        if max(density) > density_opt:
+            density_opt = max(density)
+            inlier_opt = inlier_sample
+
+    x = np.where(inlier_opt, x, np.nan)
+    y = np.where(inlier_opt, y, np.nan)
+    z = np.where(inlier_opt, z, np.nan)
+    return x, y, z
+    
 
 def expand_concat(u, v, z, u_m, v_m, z_m):
     if u.ndim == 1:    
@@ -196,6 +253,9 @@ if __name__ == '__main__':
             if FIT_LINE:
                 u, v, z = expand_concat(u, v, z, u[:,1], v[:,1], z[:,1])
 
+            if FIT_BOX:
+                u, v, z = expand_concat(u, v, z, u[:,1], v[:,1], z[:,1])
+
             point_cloud = np.zeros((4, np.size(z,0), num_filt))
             for j in range(z.shape[0]):
                 point_cloud[0, j, :] = z[j,:] * (u[j,:] - u_0) / f_x
@@ -203,7 +263,9 @@ if __name__ == '__main__':
                 point_cloud[2, j, :] = z[j,:] 
                 point_cloud[3, j, :] = 1.0
 
-            point_cloud[0:3, :, -1] = fit_line(point_cloud[0:3,:, 0], class_ids[i])
+            point_cloud[0:3, :, -2] = fit_line(point_cloud[0:3,:, 0], class_ids[i])
+            point_cloud[0:3, :, -1] = fit_box(point_cloud[0:3,:, 0], class_ids[i])
+
             point_cloud = point_cloud.reshape((4, -1))
             transform = T_w0_w.dot(dataset.poses[frame_id].dot(T_cam0_cam2))
 
