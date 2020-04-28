@@ -209,7 +209,7 @@ if __name__ == '__main__':
     with open("results.json") as json_file:
         all_data = json.load(json_file)
 
-    #sorting alldata for image_id
+    # sorting alldata for image_id
     all_data = all_data['results']
     all_data_sort = []
     for x in sorted(all_data, key = itemgetter('image_id')):
@@ -219,13 +219,12 @@ if __name__ == '__main__':
     out_path = "results"
 
     results = []
-    #store bboxes and pcls
+    # store bboxes and pcls
     if MERGE_BBOXES:
         bboxes = []
         pcls = []
         transforms = []
         classes_list = []
-
 
     for data in all_data_sort:
         frame_id = int(data['image_id'])
@@ -261,8 +260,8 @@ if __name__ == '__main__':
             v = mask[0][:]
             z = depth_image[v, u]
 
-            #Continue if there are less then 5 points per object
-            if z.size<5:
+            # Continue if there are less then 5 points per object
+            if z.size < 5:
                 continue
             
             if QUANTILE:
@@ -343,9 +342,9 @@ if __name__ == '__main__':
         
         # Save pcls and mergedbboxes
         mergedbbox_path = os.path.join(out_path, "mergedbbox")
-        np.save(mergedbbox_path, mergedbboxes, allow_pickle=True)
+        np.save(mergedbbox_path, np.array(mergedbboxes))
         classes_list_path = os.path.join(out_path, "classes_list")
-        np.save(classes_list_path, classes_list, allow_pickle=True)
+        np.save(classes_list_path, np.array(classes_list))
 
     results.sort()
     with open(os.path.join(out_path, "_results.txt"), 'w') as f:
