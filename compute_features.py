@@ -210,16 +210,15 @@ if __name__ == '__main__':
     out_path = "results"
 
     results = []
-    mergedbboxes = []
-    mergedclass_list = []
-    prevframe_bboxes = []
-    preframe_classes = []
+    #store bboxes and pcls
+    if Mergebboxes:
+        bboxes = []
+        pcls = []
+        transforms = []
+        classes_list = []
+
 
     for data in all_data_sort:
-        #store bboxes and classes_ids
-        if Mergebboxes:
-            bboxes = []
-            classes_list = []
         frame_id = int(data['image_id'])
         print("Processing frame " + data['image_id'] + '.')
 
@@ -286,16 +285,10 @@ if __name__ == '__main__':
             bbox = get_bbox(point_cloud)
 
             if Mergebboxes:
-                bboxes.append(bbox)
+                pcls.append(point_cloud)
+                transforms.append(transform)
                 classes_list.append(class_ids[i])
-                overlap = False
-                #Check if bbox overlaps with one of the bboxes of prev frame, if they do, dont add bbox
-                for m, prev_bbox in enumerate(prevframe_bboxes):
-                    if isOverlapping3D(bbox[:,mbboxnr], prev_bbox[:,mbboxnr]) and class_ids[i] == preframe_classes[m]:
-                        overlap = True
-                if not overlap:
-                    mergedbboxes.append(bbox[:,mbboxnr])
-                    mergedclass_list.append(class_ids[i])
+                bboxes.append(bbox)
             
                     
                 
@@ -311,8 +304,34 @@ if __name__ == '__main__':
         preframe_classes = classes_list
 
     if Mergebboxes:
+
+        npbboxes = np.asarray(bboxes)
+
+        #Adjaceny matrix of bbox, if bbox intersect that entry gets 1, otherwise 0
+        index = np.zeros((len(pcls), len(pcls)))
+
         #All merged bboxes
-        mergedbboxes = np.asarray(mergedbboxes)
+        mergedbboxes = []
+
+        for i in range(len(pcls)):
+            for j in range(len(pcls)):
+                if isOverlapping3D(npbboxes[i,:,mbboxnr],npbboxes[j,:,mbboxnr]) and classes_list[i] == classes_list[j]:
+                    index[i,j] = 1
+
+        # #Find for all intersecting bboxes minimum and maximum
+        for i in range(len(pcls)):
+            summ = 0
+            for j in range(len(pcls)):
+                if j>=i:
+                    break
+                summ += index[i,j]
+                if summ != 0:
+                    minoverlappingbboxes = npbboxes[np.where(index[i,:]==1),0:3,mbboxnr]
+                    maxoverlappingbboxes = npbboxes[np.where(index[i,:]==1),3:6, mbboxnr]
+                    con = np.concatenate(np.min(minoverlappingbboxes, axis=1), np.max(maxoverlappingbboxes, axis=1), axis=0)
+                    mergedbboxes.append(con)
+                else:
+                    mergedbboxes.append(npbboxes[i,0:6,mbboxnr])
         
         #Save pcls and mergedbboxes 
         mergedbbox_path = os.path.join(out_path, "mergedbbox")
