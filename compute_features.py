@@ -343,9 +343,9 @@ if __name__ == '__main__':
         
         # Save pcls and mergedbboxes
         mergedbbox_path = os.path.join(out_path, "mergedbbox")
-        np.save(mergedbbox_path, mergedbboxes, allow_pickle=False)
+        np.save(mergedbbox_path, mergedbboxes, allow_pickle=True)
         classes_list_path = os.path.join(out_path, "classes_list")
-        np.save(classes_list_path, classes_list, allow_pickle=False)
+        np.save(classes_list_path, classes_list, allow_pickle=True)
 
     results.sort()
     with open(os.path.join(out_path, "_results.txt"), 'w') as f:
