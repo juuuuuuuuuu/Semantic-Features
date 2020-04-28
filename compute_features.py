@@ -16,7 +16,7 @@ FIT_BOX = True
 Mergebboxes = True
 
 #Choose number of filter for mergedbbox
-mbboxnr = 1
+mbboxnr = 3
 
 num_filt = 4
 
@@ -96,6 +96,8 @@ def fit_box(pcl, class_id):
     """ fits a line to pointclouds, that are labeled as pole"""
     # camera coordinates
     x, y, z = pcl
+    if class_id == 10:
+       return fit_line(pcl, class_id)
     # Get indices of data
     indices = list(range(x.shape[0]))
     # Define minimum number of iterations N
