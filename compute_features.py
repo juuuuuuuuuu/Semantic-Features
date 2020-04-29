@@ -14,12 +14,13 @@ from tools import utils
 QUANTILE = True
 FIT_LINE = True
 FIT_BOX = True
-Mergebboxes = True
+MERGE_BBOXES = True
 
 #Choose number of filter for mergedbbox
 mbboxnr = 3
 
 num_filt = 4
+
 
 def isOverlapping1D(xmin1, xmin2, xmax1, xmax2) :
     if xmax1 >= xmin2 and xmax2 >= xmin1:
@@ -27,11 +28,14 @@ def isOverlapping1D(xmin1, xmin2, xmax1, xmax2) :
     else:
         return False
 
+
 def isOverlapping3D(box1, box2):
-    if isOverlapping1D(box1[0], box2[0], box1[3], box2[3]) and isOverlapping1D(box1[1], box2[1], box1[4], box2[4]) and isOverlapping1D(box1[2], box2[2], box1[5], box2[5]):
+    if isOverlapping1D(box1[0], box2[0], box1[3], box2[3]) and isOverlapping1D(box1[1], box2[1], box1[4], box2[4]) and \
+            isOverlapping1D(box1[2], box2[2], box1[5], box2[5]):
         return True
     else:
         return False
+
 
 def quantile_filt(u, v, z):
     """removes points that exceed the 40% quantile in z direction
@@ -51,6 +55,7 @@ def quantile_filt(u, v, z):
     v_m = np.where(z_p > upperlim, np.nan, v_p)
     u, v, z = expand_concat(u, v, z, u_m, v_m, z_m)
     return u, v, z
+
 
 def fit_line(pcl, class_id):
     """ fits a line to pointclouds, that are labeled as pole"""
@@ -92,6 +97,7 @@ def fit_line(pcl, class_id):
         return x, y, z
     else:
         return x, y, z
+
 
 def fit_box(pcl, class_id):
     """ fits a line to pointclouds, that are labeled as pole"""
@@ -163,17 +169,20 @@ def expand_concat(u, v, z, u_m, v_m, z_m):
     z = np.concatenate((z, z_m), axis=1)
     return u, v, z
 
+
 def get_bbox(pcl):
     bbox = np.zeros((6, num_filt))
     for m in range(num_filt):
-        pcl = point_cloud[0:3,:,m][~np.isnan(point_cloud[0:3,:,m])]
+        pcl = point_cloud[0:3, :, m][~np.isnan(point_cloud[0:3, :, m])]
         if pcl.size > 0:
-            min_coord = np.min(point_cloud[0:3,:,m][~np.isnan(point_cloud[0:3,:,m])].reshape(3,-1, 1), axis=1)
-            max_coord = np.max(point_cloud[0:3,:,m][~np.isnan(point_cloud[0:3,:,m])].reshape(3,-1, 1), axis=1)
-            bbox[:,m] = np.array([min_coord, max_coord]).reshape((6,))
+            min_coord = np.min(point_cloud[0:3, :, m][~np.isnan(point_cloud[0:3, :, m])].reshape(3, -1, 1), axis=1)
+            max_coord = np.max(point_cloud[0:3, :, m][~np.isnan(point_cloud[0:3, :, m])].reshape(3, -1, 1), axis=1)
+            bbox[:, m] = np.array([min_coord, max_coord]).reshape((6,))
         else:
-            bbox[:,m] = np.array([np.nan]*6).reshape((6,))
+            bbox[:, m] = np.array([np.nan]*6).reshape((6,))
     return bbox
+
+
 if __name__ == '__main__':
     basedir = 'content/kitti_dataset/dataset'
     sequence = '04'
@@ -200,7 +209,7 @@ if __name__ == '__main__':
     with open("results.json") as json_file:
         all_data = json.load(json_file)
 
-    #sorting alldata for image_id
+    # sorting alldata for image_id
     all_data = all_data['results']
     all_data_sort = []
     for x in sorted(all_data, key = itemgetter('image_id')):
@@ -210,16 +219,14 @@ if __name__ == '__main__':
     out_path = "results"
 
     results = []
-    mergedbboxes = []
-    mergedclass_list = []
-    prevframe_bboxes = []
-    preframe_classes = []
+    # store bboxes and pcls
+    if MERGE_BBOXES:
+        bboxes = []
+        pcls = []
+        transforms = []
+        classes_list = []
 
     for data in all_data_sort:
-        #store bboxes and classes_ids
-        if Mergebboxes:
-            bboxes = []
-            classes_list = []
         frame_id = int(data['image_id'])
         print("Processing frame " + data['image_id'] + '.')
 
@@ -253,8 +260,8 @@ if __name__ == '__main__':
             v = mask[0][:]
             z = depth_image[v, u]
 
-            #Continue if there are less then 5 points per object
-            if z.size<5:
+            # Continue if there are less then 5 points per object
+            if z.size < 5:
                 continue
             
             if QUANTILE:
@@ -285,22 +292,13 @@ if __name__ == '__main__':
 
             bbox = get_bbox(point_cloud)
 
-            if Mergebboxes:
-                bboxes.append(bbox)
+            if MERGE_BBOXES:
+                pcls.append(point_cloud)
+                transforms.append(transform)
                 classes_list.append(class_ids[i])
-                overlap = False
-                #Check if bbox overlaps with one of the bboxes of prev frame, if they do, dont add bbox
-                for m, prev_bbox in enumerate(prevframe_bboxes):
-                    if isOverlapping3D(bbox[:,mbboxnr], prev_bbox[:,mbboxnr]) and class_ids[i] == preframe_classes[m]:
-                        overlap = True
-                if not overlap:
-                    mergedbboxes.append(bbox[:,mbboxnr])
-                    mergedclass_list.append(class_ids[i])
-            
-                    
-                
+                bboxes.append(bbox)
         
-            #Save pcls and bboxes
+            # Save pcls and bboxes
             pcl_path = os.path.join(out_path, "landmark_f{}_i{}".format(data['image_id'], i))
             np.save(pcl_path, point_cloud, allow_pickle=False)
             bbox_path = os.path.join(out_path, "bbox_f{}_i{}".format(data['image_id'], i))
@@ -310,16 +308,43 @@ if __name__ == '__main__':
         prevframe_bboxes = bboxes
         preframe_classes = classes_list
 
-    if Mergebboxes:
-        #All merged bboxes
-        mergedbboxes = np.asarray(mergedbboxes)
-        
-        #Save pcls and mergedbboxes 
-        mergedbbox_path = os.path.join(out_path, "mergedbbox")
-        np.save(mergedbbox_path, mergedbboxes, allow_pickle=False)
-        classes_list_path = os.path.join(out_path, "classes_list")
-        np.save(classes_list_path, mergedclass_list, allow_pickle=False)
+    if MERGE_BBOXES:
 
+        npbboxes = np.asarray(bboxes)
+
+        # Adjaceny matrix of bbox, if bbox intersect that entry gets 1, otherwise 0
+        index = np.zeros((len(pcls), len(pcls)))
+
+        # All merged bboxes
+        mergedbboxes = []
+
+        for i in range(len(pcls)):
+            for j in range(len(pcls)):
+                if isOverlapping3D(npbboxes[i, :, mbboxnr], npbboxes[j, :, mbboxnr]) and \
+                        classes_list[i] == classes_list[j]:
+                    index[i, j] = 1
+
+        # Find for all intersecting bboxes minimum and maximum
+        for i in range(len(pcls)):
+            summ = 0
+            for j in range(len(pcls)):
+                if j>=i:
+                    break
+                summ += index[i,j]
+                if summ != 0:
+                    minoverlappingbboxes = npbboxes[np.where(index[i, :] == 1), 0:3, mbboxnr]
+                    maxoverlappingbboxes = npbboxes[np.where(index[i, :] == 1), 3:6, mbboxnr]
+                    con = np.concatenate([np.min(minoverlappingbboxes, axis=1), np.max(maxoverlappingbboxes, axis=1)],
+                                         axis=0)
+                    mergedbboxes.append(con)
+                else:
+                    mergedbboxes.append(npbboxes[i, 0:6, mbboxnr])
+        
+        # Save pcls and mergedbboxes
+        mergedbbox_path = os.path.join(out_path, "mergedbbox")
+        np.save(mergedbbox_path, np.array(mergedbboxes))
+        classes_list_path = os.path.join(out_path, "classes_list")
+        np.save(classes_list_path, np.array(classes_list))
 
     results.sort()
     with open(os.path.join(out_path, "_results.txt"), 'w') as f:
