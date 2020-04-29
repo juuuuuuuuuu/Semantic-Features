@@ -103,7 +103,7 @@ def fit_box(pcl, class_id):
     indices = list(range(x.shape[0]))
     # Define minimum number of iterations N
     # N = int(math.log(1-p)/math.log(1-(1-e)**2))
-    N = int(0.5 * len(x))
+    N = int(0.3 * len(x))
     max_iter = 20
     # Define error thresholds
     e = 0.1
@@ -131,7 +131,7 @@ def fit_box(pcl, class_id):
             box_max = np.max(pcl[:,inlier_mask], axis=1).reshape(3,-1)
             vol = (box_max - box_min).prod()
             d = inlier_mask.sum()
-            if d > len(x) * 0.2:
+            if d > len(x) * 0.2 and vol > 0:
                 density.append(d/vol)
                 inlier_sample = inlier_mask
             # Increase box size
