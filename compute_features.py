@@ -305,7 +305,7 @@ if __name__ == '__main__':
             np.save(bbox_path, bbox, allow_pickle=False)
             results.append([frame_id, i, class_ids[i], pcl_path, bbox_path, transform[:3, 3]])
 
-if MERGE_BBOXES:
+    if MERGE_BBOXES:
 
         npbboxes = np.asarray(bboxes)
         # Adjaceny matrix of bbox, if bbox intersect that entry gets 1, otherwise 0
@@ -339,6 +339,7 @@ if MERGE_BBOXES:
         np.save(mergedbbox_path, np.array(mergedbboxes))
         classes_list_path = os.path.join(out_path, "classes_list")
         np.save(classes_list_path, np.array(class_list_out))
+
     results.sort()
     with open(os.path.join(out_path, "_results.txt"), 'w') as f:
         for result in results:
