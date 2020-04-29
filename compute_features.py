@@ -305,47 +305,40 @@ if __name__ == '__main__':
             np.save(bbox_path, bbox, allow_pickle=False)
             results.append([frame_id, i, class_ids[i], pcl_path, bbox_path, transform[:3, 3]])
 
-        prevframe_bboxes = bboxes
-        preframe_classes = classes_list
-
-    if MERGE_BBOXES:
+if MERGE_BBOXES:
 
         npbboxes = np.asarray(bboxes)
-
         # Adjaceny matrix of bbox, if bbox intersect that entry gets 1, otherwise 0
         index = np.zeros((len(pcls), len(pcls)))
-
         # All merged bboxes
         mergedbboxes = []
-
         for i in range(len(pcls)):
             for j in range(len(pcls)):
-                if isOverlapping3D(npbboxes[i, :, mbboxnr], npbboxes[j, :, mbboxnr]) and \
-                        classes_list[i] == classes_list[j]:
+                if isOverlapping3D(npbboxes[i, :, mbboxnr], npbboxes[j, :, mbboxnr]) and classes_list[i] == classes_list[j]:
                     index[i, j] = 1
-
         # Find for all intersecting bboxes minimum and maximum
+        blacklist = np.array((2000,))
+        class_list_out = []
         for i in range(len(pcls)):
-            summ = 0
-            for j in range(len(pcls)):
-                if j>=i:
-                    break
-                summ += index[i,j]
-                if summ != 0:
-                    minoverlappingbboxes = npbboxes[np.where(index[i, :] == 1), 0:3, mbboxnr]
-                    maxoverlappingbboxes = npbboxes[np.where(index[i, :] == 1), 3:6, mbboxnr]
-                    con = np.concatenate([np.min(minoverlappingbboxes, axis=1), np.max(maxoverlappingbboxes, axis=1)],
-                                         axis=0)
-                    mergedbboxes.append(con)
-                else:
-                    mergedbboxes.append(npbboxes[i, 0:6, mbboxnr])
-        
+            if i in blacklist:
+                continue
+            elif np.sum(index[i,:]) != 0:
+                minoverlappingbboxes = npbboxes[np.where(index[i,:]==1),0:3,mbboxnr]
+                maxoverlappingbboxes = npbboxes[np.where(index[i,:]==1),3:6, mbboxnr]
+
+                con = np.concatenate([np.min(minoverlappingbboxes, axis=1), np.max(maxoverlappingbboxes, axis=1)],
+                                         axis=1)
+                mergedbboxes.append(con)
+                blacklist_add = np.where(index[i,:]==1)[0]
+                blacklist = np.unique(np.concatenate((blacklist,blacklist_add),0))
+
+                class_list_out.append(classes_list[i])
+        print(len(mergedbboxes))
         # Save pcls and mergedbboxes
         mergedbbox_path = os.path.join(out_path, "mergedbbox")
         np.save(mergedbbox_path, np.array(mergedbboxes))
         classes_list_path = os.path.join(out_path, "classes_list")
-        np.save(classes_list_path, np.array(classes_list))
-
+        np.save(classes_list_path, np.array(class_list_out))
     results.sort()
     with open(os.path.join(out_path, "_results.txt"), 'w') as f:
         for result in results:

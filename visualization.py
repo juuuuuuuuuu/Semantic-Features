@@ -37,7 +37,7 @@ class LandmarkRenderer:
                                                    self.label_colors,
                                                    None)
                                                 
-        self.mbboxes_rendered = render_mbboxes(self.label_colors, self.mbboxes, self.class_id)
+        self.mbboxes_rendered = render_mbboxes_func(self.label_colors, self.mbboxes, self.class_id)
 
         self.ground_grid = render_ground_grid()
 
@@ -181,7 +181,7 @@ class LandmarkRenderer:
     def get_show_mbboxes(self):
         def show_mbboxes(vis):
             self.render_mbboxes = not self.render_mbboxes
-            print('Switched shwoing method of mbboxes')
+            print('Switched showing method of mbboxes')
             self.update_render(vis)
         return show_mbboxes
 
@@ -199,10 +199,10 @@ def render_landmarks(landmarks, labels, label_colors):
 
     return boxes
 
-def render_mbboxes(label_colors, mbboxes, class_id):
+def render_mbboxes_func(label_colors, mbboxes, class_id):
     merged_boxes = []
     for i, mbbox in enumerate(mbboxes):
-        merged_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=mbbox[0:3], max_bound=mbbox[3:6])
+        merged_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=mbbox[0,0:3], max_bound=mbbox[0,3:6])
         merged_box.color = label_colors[class_id[i]] #random color
         merged_boxes.append(merged_box)
     return merged_boxes
