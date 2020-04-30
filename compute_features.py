@@ -12,17 +12,25 @@ from operator import itemgetter
 from tools import utils
 
 QUANTILE = True
-FIT_LINE = True
-FIT_BOX = True
+FIT_LINE = False
+FIT_BOX = False
 MERGE_BBOXES = True
 
-#Choose number of filter for mergedbbox
-mbboxnr = 3
+# Choose number of filter for mergedbbox
+mbboxnr = 1
 
-num_filt = 4
+# Choose error for merging bboxes
+inflation = 0.1
+
+num_filt = 2
 
 
 def isOverlapping1D(xmin1, xmin2, xmax1, xmax2) :
+    xmin1 -= inflation
+    xmin2 -= inflation
+    xmax1 += inflation
+    xmax2 += inflation
+
     if xmax1 >= xmin2 and xmax2 >= xmin1:
         return True
     else:
@@ -226,7 +234,12 @@ if __name__ == '__main__':
         transforms = []
         classes_list = []
 
-    for data in all_data_sort:
+    for n, data in enumerate(all_data_sort):
+        # Only processing half of the images
+        if n % 2 == 0:
+            print("Skip processing frame " + data['image_id'] + '.')
+            continue
+
         frame_id = int(data['image_id'])
         print("Processing frame " + data['image_id'] + '.')
 
@@ -280,8 +293,10 @@ if __name__ == '__main__':
                 point_cloud[2, j, :] = z[j,:] 
                 point_cloud[3, j, :] = 1.0
 
-            point_cloud[0:3, :, -2] = fit_line(point_cloud[0:3,:, 0], class_ids[i])
-            point_cloud[0:3, :, -1] = fit_box(point_cloud[0:3,:, 0], class_ids[i])
+            if FIT_LINE:
+                point_cloud[0:3, :, -2] = fit_line(point_cloud[0:3,:, 0], class_ids[i])
+            if FIT_BOX:
+                point_cloud[0:3, :, -1] = fit_box(point_cloud[0:3,:, 0], class_ids[i])
 
             point_cloud = point_cloud.reshape((4, -1))
             transform = T_w0_w.dot(dataset.poses[frame_id].dot(T_cam0_cam2))
@@ -308,18 +323,24 @@ if __name__ == '__main__':
     if MERGE_BBOXES:
 
         npbboxes = np.asarray(bboxes)
+
+        # Number of unmerged landmarks
+        nlandm = len(pcls)
+
         # Adjaceny matrix of bbox, if bbox intersect that entry gets 1, otherwise 0
-        index = np.zeros((len(pcls), len(pcls)))
+        index = np.zeros((nlandm, nlandm))
+
         # All merged bboxes
         mergedbboxes = []
-        for i in range(len(pcls)):
-            for j in range(len(pcls)):
+        for i in range(nlandm):
+            for j in range(nlandm):
                 if isOverlapping3D(npbboxes[i, :, mbboxnr], npbboxes[j, :, mbboxnr]) and classes_list[i] == classes_list[j]:
                     index[i, j] = 1
+
         # Find for all intersecting bboxes minimum and maximum
-        blacklist = np.array((2000,))
+        blacklist = np.array((-1,))
         class_list_out = []
-        for i in range(len(pcls)):
+        for i in range(nlandm):
             if i in blacklist:
                 continue
             elif np.sum(index[i,:]) != 0:
@@ -340,7 +361,6 @@ if __name__ == '__main__':
         classes_list_path = os.path.join(out_path, "classes_list")
         np.save(classes_list_path, np.array(class_list_out))
 
-    results.sort()
     with open(os.path.join(out_path, "_results.txt"), 'w') as f:
         for result in results:
             f.write(str(result[0]) + " " + str(result[1]) + " " + str(result[2]) + " " + str(result[3]) + " " +
