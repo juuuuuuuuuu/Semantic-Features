@@ -1,6 +1,161 @@
 import numpy as np
 import time
 import matplotlib.pyplot as plt
+import open3d as o3d
+import cv2
+from collections import Counter
+
+
+def get_colors():
+    colors = np.zeros((500, 3))
+
+    for i in range(500):
+        # Generate random numbers. With fixed seeds.
+        np.random.seed(i)
+        rgb = np.random.randint(255, size=(1, 3)) / 255.0
+        colors[i, :] = rgb
+
+    return colors
+
+
+class LandmarkRenderer:
+    def __init__(self, landmarks, labels, label_colors):
+        self.landmarks = landmarks
+
+        self.lm_labels = labels
+        self.label_colors = label_colors
+        self.pointer = 0
+        self.render_single_frame = False
+        self.render_pose_connect = False
+        self.render_boxes = False
+
+        self.landmark_geometries = render_landmarks(self.landmarks, self.lm_labels, self.label_colors)
+
+        self.ground_grid = render_ground_grid()
+
+    def run(self):
+        vis = o3d.visualization.VisualizerWithKeyCallback()
+        vis.create_window()
+        opt = vis.get_render_option()
+        opt.background_color = np.asarray([0, 0, 0])
+
+        # vis.register_key_callback(ord("F"), self.get_switch_index_callback(forward=True))
+        # vis.register_key_callback(ord("D"), self.get_switch_index_callback(forward=False))
+        # vis.register_key_callback(ord("A"), self.get_toggle_show_all_callback())
+        # vis.register_key_callback(ord("N"), self.get_toggle_connect_callback())
+        vis.register_key_callback(ord("S"), self.get_screen_cap_callback())
+
+        print("Press 'A' to toggle between show all and show only one frame.")
+        print("Press 'F' to switch to next frame.")
+        print("Press 'D' to switch to previous frame.")
+        print("Press 'S' to capture screenshot.")
+
+        for geometry in self.landmark_geometries:
+            vis.add_geometry(geometry)
+
+        vis.add_geometry(self.ground_grid)
+
+        vis.run()
+        vis.destroy_window()
+
+    def update_render(self, vis):
+        view = vis.get_view_control().convert_to_pinhole_camera_parameters()
+        vis.clear_geometries()
+
+        for geometry in self.landmark_geometries:
+            vis.add_geometry(geometry)
+
+        vis.add_geometry(self.ground_grid)
+
+        # self.get_screen_cap_callback()(vis)
+
+        vis.update_renderer()
+        vis.get_view_control().convert_from_pinhole_camera_parameters(view)
+
+    def get_toggle_connect_callback(self):
+        def toggle_connect(vis):
+            self.render_pose_connect = not self.render_pose_connect
+            self.update_render(vis)
+
+        return toggle_connect
+
+    def get_toggle_show_all_callback(self):
+        def toggle_show_all(vis):
+            self.render_single_frame = not self.render_single_frame
+            self.update_render(vis)
+
+        return toggle_show_all
+
+    def get_screen_cap_callback(self):
+        def capture_screen(vis):
+            image = np.asarray(vis.capture_screen_float_buffer(False))
+            path = "results/{}.jpg".format(self.unique_frame_ids[self.pointer])
+            cv2.imwrite(path, image * 255., [cv2.IMWRITE_JPEG_QUALITY, 40])
+            print("Screenshot saved to " + path)
+
+        return capture_screen
+
+    def get_switch_index_callback(self, forward):
+        def switch_index(vis):
+            if not self.render_single_frame:
+                self.render_single_frame = True
+            else:
+                if forward:
+                    self.pointer = self.pointer + 1
+                else:
+                    self.pointer = self.pointer - 1
+                if self.pointer == self.frame_count:
+                    self.pointer = 0
+                if self.pointer == -1:
+                    self.pointer = self.frame_count - 1
+
+            print("Now showing frame {} ({}/{})".format(
+                self.unique_frame_ids[self.pointer], self.pointer + 1, self.frame_count))
+            self.update_render(vis)
+
+        return switch_index
+
+
+def render_ground_grid():
+    scale = 10
+    size = 30
+    count = size * 2
+    x_min = -10
+    x_max = 2 * size - 10
+    x = np.arange(x_min, x_max).reshape(count, 1) * scale
+    y = np.arange(-size, size).reshape(count, 1) * scale
+    z = -2 * np.ones((count, 1))
+    x_1 = np.hstack([x, y * 0. + size * scale, z])
+    x_2 = np.hstack([x, y * 0. - size * scale, z])
+    y_1 = np.hstack([x * 0. + x_max * scale, y, z])
+    y_2 = np.hstack([x * 0. + x_min * scale, y, z])
+    points = np.vstack([x_1, x_2, y_1, y_2])
+    indices = np.vstack([
+        np.hstack([np.arange(count).reshape(count, 1), (np.arange(count) + count).reshape(count, 1)]),
+        np.hstack([(np.arange(count) + 2 * count).reshape(count, 1), (np.arange(count) + 3 * count).reshape(count, 1)])
+    ])
+    colors = [[0.3, 0.3, 0.3] for i in range(count * 2)]
+    line_set = o3d.geometry.LineSet(
+        points=o3d.utility.Vector3dVector(points.astype(float).tolist()),
+        lines=o3d.utility.Vector2iVector(indices.astype(int).tolist()),
+    )
+    line_set.colors = o3d.utility.Vector3dVector(colors)
+    return line_set
+
+
+def render_landmarks(landmarks, labels, label_colors):
+    size = 0.5
+    size_vec = np.array([size / 2., size / 2., size / 2.])
+
+    boxes = []
+
+    for i in range(len(landmarks)):
+        box = o3d.geometry.AxisAlignedBoundingBox(min_bound=landmarks[i, :] - size_vec,
+                                                  max_bound=landmarks[i, :] + size_vec)
+        box.color = label_colors[labels[i]]
+        boxes.append(box)
+
+    return boxes
 
 
 class OctTree:
@@ -81,13 +236,13 @@ class Map:
         self.landmark_labels = labels
 
         # Check how many landmarks below threshold.
-        check_dist = 0.4
+        check_dist = 0.5
         num_below = 0
         lms_to_delete = []
         for i in range(self.landmarks.shape[0] - 1):
             for j in range(i + 1, self.landmarks.shape[0]):
-                if np.linalg.norm(self.landmarks[i, :] - self.landmarks[j, :]) < check_dist:# and \
-                        # self.landmark_labels[i] == self.landmark_labels[j]:
+                if np.linalg.norm(self.landmarks[i, :] - self.landmarks[j, :]) < check_dist and \
+                        self.landmark_labels[i] == self.landmark_labels[j]:
                     num_below += 1
                     if j not in lms_to_delete:
                         lms_to_delete += [j]
@@ -129,6 +284,17 @@ class Map:
         print("Computing triangles.")
         tic = time.perf_counter()
 
+        # This is done to sort triangle indices according to their length. (Right hand rule)
+        # Found no better way than to hack the shit out of this.
+        order_mapping = {
+            (0, 1, 2): (0, 1, 2),
+            (0, 2, 1): (1, 0, 2),
+            (1, 0, 2): (2, 1, 0),
+            (1, 2, 0): (1, 2, 0),
+            (2, 0, 1): (2, 0, 1),
+            (2, 1, 0): (0, 2, 1)
+        }
+
         for i in range(self.landmarks.shape[0]):
             for nb_1 in self.neighbor_indices[i]:
                 length_1 = np.linalg.norm(self.landmarks[i, :] - self.landmarks[nb_1, :])
@@ -146,8 +312,11 @@ class Map:
                                     length_2,
                                     np.linalg.norm(self.landmarks[i, :] - self.landmarks[nb_2, :])
                                 ])
-                                vector = np.sort(vector)
-                                self.triangles.update({triangle_key: vector})
+                                order = np.argsort(vector)
+                                vector = vector[order]
+                                order_map = order_mapping[tuple(order)]
+                                lms = [triangle[order_map[i]] for i in range(3)]
+                                self.triangles.update({triangle_key: [vector, lms]})
 
         print("Triangle count is: {}".format(len(self.triangles)))
         toc = time.perf_counter()
@@ -166,12 +335,18 @@ class Map:
     def generate_tree(self):
         tic = time.perf_counter()
         for item in self.triangles.items():
-            self.octtree.add(item, item[1])
+            self.octtree.add(item, item[1][0])
 
         print("Time to generate oct tree: {}".format(time.perf_counter() - tic))
 
+    def render(self):
+        renderer = LandmarkRenderer(self.landmarks, self.landmark_labels, get_colors())
+        renderer.run()
+
     def check_triangle(self):
-        max_dist = 0.4
+        tic = time.perf_counter()
+
+        max_dist = 1.5
         num_landmarks = 8
 
         anchor = 0
@@ -183,6 +358,16 @@ class Map:
             if len(test_nbh) >= num_landmarks:
                 break
 
+        # This is done to sort triangle indices according to their length. (Right hand rule)
+        # Found no better way than to hack the shit out of this.
+        order_mapping = {
+            (0, 1, 2): (0, 1, 2),
+            (0, 2, 1): (1, 0, 2),
+            (1, 0, 2): (2, 1, 0),
+            (1, 2, 0): (1, 2, 0),
+            (2, 0, 1): (2, 0, 1),
+            (2, 1, 0): (0, 2, 1)
+        }
         test_triangles = {}
         for i in test_nbh:
             for nb_1 in test_nbh:
@@ -207,44 +392,54 @@ class Map:
                                     length_2,
                                     np.linalg.norm(self.landmarks[i, :] - self.landmarks[nb_2, :])
                                 ])
-                                vector = np.sort(vector)
-                                test_triangles.update({triangle_key: vector})
+                                order = np.argsort(vector)
+                                vector = vector[order]
+                                order_map = order_mapping[tuple(order)]
+                                lms = [triangle[order_map[i]] for i in range(3)]
+                                test_triangles.update({triangle_key: [vector, lms]})
 
         print("Landmark count is: {}".format(len(test_nbh)))
         print("Test triangle count is: {}".format(len(test_triangles)))
 
-        matches = [[] for i in range(self.landmarks.shape[0])]
+        t_matches = [[] for i in range(self.landmarks.shape[0])]
+        lm_matches = [[] for i in range(self.landmarks.shape[0])]
         for i_triangle, item in enumerate(test_triangles.items()):
-            for element in self.octtree.query(item[1], l1_radius=max_dist/2.):
-                if np.linalg.norm(item[1] - element[1]) <= max_dist:
-                    for index in element[0]:
-                        if i_triangle not in matches[index]:
-                            matches[index] += [i_triangle]
+            for element in self.octtree.query(item[1][0], l1_radius=max_dist):
+                matches = [[], [], []]
+                if np.linalg.norm(item[1][0] - element[1][0]) <= max_dist:
+                    for i in range(3):
+                        lm_index_world = element[1][1][i]
+                        if lm_index_world not in matches[i]:
+                            matches[i] += [lm_index_world]
 
-        match_counts = np.array([len(match) for match in matches])
+                for i in range(3):
+                    for lm in matches[i]:
+                        lm_index_frame = item[1][1][i]
+                        lm_matches[lm] += [lm_index_frame]
+                        # if i_triangle not in t_matches[lm_index]:
+                        #     t_matches[lm_index] += [i_triangle]
+                        #     lm_matches[lm_index] += [item[1][1][i]]
+
+        match_counts = np.zeros((self.landmarks.shape[0],))
+        match_indices = np.zeros((self.landmarks.shape[0],))
+        match_dict = {}
+        for i, match in enumerate(lm_matches):
+            most_common = Counter(match).most_common(1)
+            if most_common:
+                match_counts[i] = most_common[0][1]
+                match_indices[i] = most_common[0][0]
+
+            match_dict.update({i: [match_indices[i], match_counts[i]]})
+
+        argsort = np.argsort(match_counts)
+        out = np.stack([argsort, match_indices[argsort], match_counts[argsort]])
         print("Match counts:")
-        print(np.sort(match_counts)[-15:])
-        print("Predicted landmark indices:")
-        print(np.argsort(match_counts)[-15:])
-        print("Actual landmark indices:")
-        print(test_nbh)
+        print(np.transpose(out[:, -30:]))
 
-        # triangle_key = next(iter(self.triangles))
-        # triangle_vec = self.triangles[triangle_key]
-        #
-        # print("Triangle selected is connected to: {}".format(triangle_key))
-        # print("It has side lengths: {}".format(triangle_vec))
-        # print(" ")
-        # print("In the same cell of this triangle there are the following triangles: ")
-        # print(" ")
-        #
-        # tic = time.perf_counter()
-        # for element in self.octtree.query(triangle_vec, l1_radius=max_dist/2.):
-        #     print("Landmarks: {}".format(element[0]))
-        #     print("Side lengths: {}".format(element[1]))
-        #     print("Distance to original is: ".format(np.linalg.norm(element[1] - triangle_vec)))
-        #
-        # print("This query took {} seconds.".format(time.perf_counter() - tic))
+        print("This query took {} seconds.".format(time.perf_counter() - tic))
+
+
+
 
 
 if __name__ == '__main__':
@@ -255,4 +450,5 @@ if __name__ == '__main__':
     # lol.plot_triangles()
     lol.generate_tree()
     lol.check_triangle()
+    lol.render()
 
