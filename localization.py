@@ -3,6 +3,8 @@ import time
 import matplotlib.pyplot as plt
 import open3d as o3d
 import cv2
+import os
+import pandas as pd
 from collections import Counter
 
 
@@ -19,17 +21,22 @@ def get_colors():
 
 
 class LandmarkRenderer:
-    def __init__(self, landmarks, labels, label_colors):
+    def __init__(self, landmarks, labels, frame_lms, frame_labels, label_colors):
         self.landmarks = landmarks
-
         self.lm_labels = labels
+
+        self.frame_lms = frame_lms
+        self.frame_labels = frame_labels
         self.label_colors = label_colors
         self.pointer = 0
+        self.frame_count = len(frame_lms)
         self.render_single_frame = False
         self.render_pose_connect = False
         self.render_boxes = False
 
         self.landmark_geometries = render_landmarks(self.landmarks, self.lm_labels, self.label_colors)
+        self.frame_geometries = [render_landmarks(frame_lms[i], frame_labels[i], self.label_colors, size=0.1) for i in
+                                 range(self.frame_count)]
 
         self.ground_grid = render_ground_grid()
 
@@ -39,8 +46,8 @@ class LandmarkRenderer:
         opt = vis.get_render_option()
         opt.background_color = np.asarray([0, 0, 0])
 
-        # vis.register_key_callback(ord("F"), self.get_switch_index_callback(forward=True))
-        # vis.register_key_callback(ord("D"), self.get_switch_index_callback(forward=False))
+        vis.register_key_callback(ord("F"), self.get_switch_index_callback(forward=True))
+        vis.register_key_callback(ord("D"), self.get_switch_index_callback(forward=False))
         # vis.register_key_callback(ord("A"), self.get_toggle_show_all_callback())
         # vis.register_key_callback(ord("N"), self.get_toggle_connect_callback())
         vis.register_key_callback(ord("S"), self.get_screen_cap_callback())
@@ -53,6 +60,10 @@ class LandmarkRenderer:
         for geometry in self.landmark_geometries:
             vis.add_geometry(geometry)
 
+        for geometry in self.frame_geometries[self.pointer]:
+            vis.add_geometry(geometry)
+            print("Render some boy")
+
         vis.add_geometry(self.ground_grid)
 
         vis.run()
@@ -63,6 +74,9 @@ class LandmarkRenderer:
         vis.clear_geometries()
 
         for geometry in self.landmark_geometries:
+            vis.add_geometry(geometry)
+
+        for geometry in self.frame_geometries[self.pointer]:
             vis.add_geometry(geometry)
 
         vis.add_geometry(self.ground_grid)
@@ -109,8 +123,7 @@ class LandmarkRenderer:
                 if self.pointer == -1:
                     self.pointer = self.frame_count - 1
 
-            print("Now showing frame {} ({}/{})".format(
-                self.unique_frame_ids[self.pointer], self.pointer + 1, self.frame_count))
+            print("Now showing frame {}/{}".format(self.pointer + 1, self.frame_count))
             self.update_render(vis)
 
         return switch_index
@@ -143,12 +156,10 @@ def render_ground_grid():
     return line_set
 
 
-def render_landmarks(landmarks, labels, label_colors):
-    size = 0.5
+def render_landmarks(landmarks, labels, label_colors, size=0.5):
     size_vec = np.array([size / 2., size / 2., size / 2.])
 
     boxes = []
-
     for i in range(len(landmarks)):
         box = o3d.geometry.AxisAlignedBoundingBox(min_bound=landmarks[i, :] - size_vec,
                                                   max_bound=landmarks[i, :] + size_vec)
@@ -221,22 +232,21 @@ class Map:
         self.landmark_labels = np.zeros((0, 1))
         self.neighbor_indices = []
         self.triangles = {}
-        self.max_dist = 30.
+        # The maximum viewing distance for valid landmarks is lets say 50 m.
+        self.max_dist = 50.
         self.octtree = OctTree(min_bound=np.zeros((3,)), max_bound=np.ones((3,)) * self.max_dist, depth=7)
 
-    def load_landmarks(self, lm_path, label_path):
-        # The maximum viewing distance for valid landmarks is lets say 40 m.
-        bboxes = np.load(lm_path, allow_pickle=True)
-        bboxes = np.vstack(bboxes)
-        labels = np.load(label_path, allow_pickle=True)
+    def load_landmarks(self, frame_lms, frame_labels):
+        self.landmarks = np.vstack(frame_lms)
+        self.landmark_labels = np.concatenate(frame_labels, axis=0)
 
-        print("Number of landmarks: {}".format(bboxes.shape[0]))
+        print("Number of landmarks: {}".format(self.landmarks.shape[0]))
         # Use midpoints of merged bounding boxes as landmark.
-        self.landmarks = (bboxes[:, :3] + bboxes[:, 3:6]) / 2.
-        self.landmark_labels = labels
+        # self.landmarks = (bboxes[:, :3] + bboxes[:, 3:6]) / 2.
+        # self.landmark_labels = labels
 
         # Check how many landmarks below threshold.
-        check_dist = 0.5
+        check_dist = 0.0
         num_below = 0
         lms_to_delete = []
         for i in range(self.landmarks.shape[0] - 1):
@@ -339,14 +349,14 @@ class Map:
 
         print("Time to generate oct tree: {}".format(time.perf_counter() - tic))
 
-    def render(self):
-        renderer = LandmarkRenderer(self.landmarks, self.landmark_labels, get_colors())
+    def render(self, frame_landmarks, frame_labels):
+        renderer = LandmarkRenderer(self.landmarks, self.landmark_labels, frame_landmarks, frame_labels, get_colors())
         renderer.run()
 
     def check_triangle(self):
         tic = time.perf_counter()
 
-        max_dist = 1.5
+        max_dist = 1.0
         num_landmarks = 8
 
         anchor = 0
@@ -438,17 +448,77 @@ class Map:
 
         print("This query took {} seconds.".format(time.perf_counter() - tic))
 
+    def query_frame(self, landmarks, labels):
+        # This is done to sort triangle indices according to their length. (Right hand rule)
+        # Found no better way than to hack the shit out of this.
+        order_mapping = {
+            (0, 1, 2): (0, 1, 2),
+            (0, 2, 1): (1, 0, 2),
+            (1, 0, 2): (2, 1, 0),
+            (1, 2, 0): (1, 2, 0),
+            (2, 0, 1): (2, 0, 1),
+            (2, 1, 0): (0, 2, 1)
+        }
+
+        maximum_length = 0
+        frame_triangles = {}
+        for i in range(landmarks.shape[0]):
+            for nb_1 in range(i + 1, landmarks.shape[0]):
+                length_1 = np.linalg.norm(self.landmarks[i, :] - self.landmarks[nb_1, :])
+                for nb_2 in range(landmarks.shape[0]):
+                    if nb_2 == i or nb_2 == nb_1:
+                        continue
+
+                    length_2 = np.linalg.norm(self.landmarks[nb_2, :] - self.landmarks[nb_1, :])
+
+                    triangle = [i, nb_1, nb_2]
+                    triangle.sort()
+                    triangle_key = tuple(triangle)
+                    if triangle_key not in frame_triangles:
+                        vector = np.array([
+                            length_1,
+                            length_2,
+                            np.linalg.norm(self.landmarks[i, :] - self.landmarks[nb_2, :])
+                        ])
+                        order = np.argsort(vector)
+                        vector = vector[order]
+                        order_map = order_mapping[tuple(order)]
+                        lms = [triangle[order_map[i]] for i in range(3)]
+                        frame_triangles.update({triangle_key: [vector, lms]})
+                        maximum_length = max(maximum_length, np.max(vector))
+
+        print("Landmark count is: {}".format(landmarks.shape[0]))
+        print("Test triangle count is: {}".format(len(frame_triangles)))
+        print("Maximum triangle side length is: {}".format(maximum_length))
 
 
+def load_frame(path, frame_indices):
+    results = pd.read_csv(path, header=None, sep=' ')
+    data = np.array(results.values)
+    frame_landmarks = []
+    frame_labels = []
+    for i in frame_indices:
+        frame_data = data[np.where(data[:, 0] == i), :][0, :, :]
+        labels = frame_data[:, 2]
+        frame_paths = frame_data[:, 4]
+        landmarks = np.zeros((len(frame_paths), 3))
+        for j, f_path in enumerate(frame_paths):
+            bbox = np.load(f_path + '.npy')[:, 1]
+            landmarks[j, :] = (bbox[:3] + bbox[3:6]) / 2.
+        frame_landmarks.append(landmarks)
+        frame_labels.append(labels)
+
+    return frame_landmarks, frame_labels
 
 
 if __name__ == '__main__':
     lol = Map()
-    lol.load_landmarks("/home/felix/vision_ws/Semantic-Features/results/mergedbbox.npy",
-                       "/home/felix/vision_ws/Semantic-Features/results/classes_list.npy")
+    f_lms, f_labels = load_frame("/home/felix/vision_ws/Semantic-Features/results/_results.txt", list(range(271)))
+    lol.load_landmarks(f_lms, f_labels)
+    lol.render(f_lms[::2], f_labels[::2])
     lol.compute_triangles()
     # lol.plot_triangles()
     lol.generate_tree()
+    lol.query_frame(f_lms[0], f_labels[0])
     lol.check_triangle()
-    lol.render()
 
