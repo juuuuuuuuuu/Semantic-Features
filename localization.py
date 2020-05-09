@@ -4,7 +4,9 @@ import matplotlib.pyplot as plt
 import open3d as o3d
 import cv2
 import os
+import random
 import pandas as pd
+import scipy.linalg
 from collections import Counter
 
 
@@ -21,14 +23,13 @@ def get_colors():
 
 
 class LandmarkRenderer:
-    def __init__(self, landmarks, labels, all_landmarks, all_labels, frame_lms, frame_labels, matched_lms, label_colors):
+    def __init__(self, landmarks, labels, all_landmarks, all_labels, frame_lms, frame_labels, pose_est, pose_gts,
+                 query_inliers, label_colors):
         self.landmarks = landmarks
         self.lm_labels = labels
 
         self.all_landmarks = all_landmarks
         self.all_lm_labels = all_labels
-
-        self.matched_lms = matched_lms
 
         self.frame_lms = frame_lms
         self.frame_labels = frame_labels
@@ -41,10 +42,15 @@ class LandmarkRenderer:
         self.render_all = False
         self.render_matched = False
 
+        self.poses_gts_geometries = [render_pose(pose, False) for pose in pose_gts]
+        self.poses_est_geometries = [render_pose(pose, True) for pose in pose_est]
+        self.frame_matches = [render_matches(frame_lms[i], landmarks, query_inliers[i], pose_est[i]) for i
+                              in range(len(frame_lms))]
+        self.frame_lms_geometries = [render_landmarks(frame_lms[i], frame_labels[i], self.label_colors, size=0.1) for i
+                                     in range(self.frame_count)]
+
         self.landmark_geometries = render_landmarks(self.landmarks, self.lm_labels, self.label_colors)
         self.all_landmark_geometries = render_landmarks(self.all_landmarks, self.all_lm_labels, self.label_colors)
-        self.frame_geometries = [render_landmarks(frame_lms[i], frame_labels[i], self.label_colors, size=0.1) for i in
-                                 range(self.frame_count)]
 
         self.ground_grid = render_ground_grid()
 
@@ -68,8 +74,15 @@ class LandmarkRenderer:
         for geometry in self.landmark_geometries:
             vis.add_geometry(geometry)
 
-        for geometry in self.frame_geometries[self.pointer]:
+        for geometry in self.frame_lms_geometries[self.pointer]:
             vis.add_geometry(geometry)
+
+        for geometry in self.poses_gts_geometries:
+            vis.add_geometry(geometry)
+
+        for geometry in self.poses_est_geometries:
+            if geometry:
+                vis.add_geometry(geometry)
 
         vis.add_geometry(self.ground_grid)
 
@@ -84,16 +97,22 @@ class LandmarkRenderer:
             for geometry in self.all_landmark_geometries:
                 vis.add_geometry(geometry)
         else:
-            if self.render_matched:
-                for i, geometry in enumerate(self.landmark_geometries):
-                    if i in self.matched_lms:
-                        vis.add_geometry(geometry)
-            else:
-                for geometry in self.landmark_geometries:
-                    vis.add_geometry(geometry)
+            for geometry in self.landmark_geometries:
+                vis.add_geometry(geometry)
 
-        for geometry in self.frame_geometries[self.pointer]:
-            vis.add_geometry(geometry)
+        if self.render_matched:
+            for geometry in self.frame_lms_geometries[self.pointer]:
+                vis.add_geometry(geometry)
+            vis.add_geometry(self.poses_gts_geometries[self.pointer])
+            if self.frame_matches[self.pointer]:
+                vis.add_geometry(self.frame_matches[self.pointer])
+                vis.add_geometry(self.poses_est_geometries[self.pointer])
+        else:
+            for geometry in self.poses_gts_geometries:
+                vis.add_geometry(geometry)
+            for geometry in self.poses_est_geometries:
+                if geometry:
+                    vis.add_geometry(geometry)
 
         vis.add_geometry(self.ground_grid)
 
@@ -118,6 +137,8 @@ class LandmarkRenderer:
 
     def get_screen_cap_callback(self):
         def capture_screen(vis):
+            exit(0)
+
             image = np.asarray(vis.capture_screen_float_buffer(False))
             path = "results/{}.jpg".format(self.unique_frame_ids[self.pointer])
             cv2.imwrite(path, image * 255., [cv2.IMWRITE_JPEG_QUALITY, 40])
@@ -127,17 +148,14 @@ class LandmarkRenderer:
 
     def get_switch_index_callback(self, forward):
         def switch_index(vis):
-            if not self.render_single_frame:
-                self.render_single_frame = True
+            if forward:
+                self.pointer = self.pointer + 1
             else:
-                if forward:
-                    self.pointer = self.pointer + 1
-                else:
-                    self.pointer = self.pointer - 1
-                if self.pointer == self.frame_count:
-                    self.pointer = 0
-                if self.pointer == -1:
-                    self.pointer = self.frame_count - 1
+                self.pointer = self.pointer - 1
+            if self.pointer == self.frame_count:
+                self.pointer = 0
+            if self.pointer == -1:
+                self.pointer = self.frame_count - 1
 
             print("Now showing frame {}/{}".format(self.pointer + 1, self.frame_count))
             self.update_render(vis)
@@ -183,6 +201,47 @@ def render_landmarks(landmarks, labels, label_colors, size=0.5):
         boxes.append(box)
 
     return boxes
+
+
+def render_matches(frame_landmarks, map_landmarks, matches, pose):
+    if matches is None:
+        return None
+
+    line_count = matches.shape[0]
+
+    points = np.vstack((frame_landmarks[matches[:, 0], :],
+                        map_landmarks[matches[:, 1], :],
+                        pose))
+    indices = np.vstack((
+        np.hstack((np.arange(line_count).reshape(line_count, 1),
+                   np.arange(line_count, line_count*2).reshape(line_count, 1))),
+        np.hstack((np.ones((line_count, 1), dtype=int) * 2 * line_count,
+                   np.arange(line_count).reshape(line_count, 1)))))
+
+    colors = [[1.0, 0.5, 0.5] for i in range(line_count * 2)]
+    line_set = o3d.geometry.LineSet(
+        points=o3d.utility.Vector3dVector(points.astype(float).tolist()),
+        lines=o3d.utility.Vector2iVector(indices.astype(int).tolist()),
+    )
+    line_set.colors = o3d.utility.Vector3dVector(colors)
+
+    return line_set
+
+
+def render_pose(pose, red):
+    if pose is None:
+        return None
+
+    size = 1.
+    size_vec = np.array([size/2., size/2., size/2.])
+    box = o3d.geometry.AxisAlignedBoundingBox(min_bound=pose - size_vec,
+                                              max_bound=pose + size_vec)
+    if red:
+        box.color = np.array([1.0, 0.1, 0.1])
+    else:
+        box.color = np.array([0.3, 1.0, 0.3])
+
+    return box
 
 
 class OctTree:
@@ -407,11 +466,12 @@ class Map:
 
         print("Time to generate oct tree: {}".format(time.perf_counter() - tic))
 
-    def render(self, frame_landmarks, frame_labels):
+    def render(self, frame_landmarks, frame_labels, pose_estimations, pose_gts, inliers):
         renderer = LandmarkRenderer(self.landmarks, self.landmark_labels,
                                     self.all_landmarks, self.all_landmark_labels,
                                     frame_landmarks, frame_labels,
-                                    self.matched_lms, get_colors())
+                                    pose_estimations, pose_gts,
+                                    inliers, get_colors())
         renderer.run()
 
     def check_triangle(self):
@@ -581,23 +641,24 @@ class Map:
         for i_triangle, item in enumerate(frame_triangles.items()):
             labels_key = tuple([labels[item[1][1][i]] for i in range(3)])
             triangles_matched_here = 0
-            for element in self.oct_trees[labels_key].query(item[1][0], l1_radius=max_dist):
-                matches = [[], [], []]
-                if np.linalg.norm(item[1][0] - element[1][0]) <= max_dist:
-                    triangles_matched_here += 1
+            if labels_key in self.oct_trees:
+                for element in self.oct_trees[labels_key].query(item[1][0], l1_radius=max_dist):
+                    matches = [[], [], []]
+                    if np.linalg.norm(item[1][0] - element[1][0]) <= max_dist:
+                        triangles_matched_here += 1
+
+                        for i in range(3):
+                            lm_index_world = element[1][1][i]
+                            if lm_index_world not in matches[i]:
+                                matches[i] += [lm_index_world]
 
                     for i in range(3):
-                        lm_index_world = element[1][1][i]
-                        if lm_index_world not in matches[i]:
-                            matches[i] += [lm_index_world]
-
-                for i in range(3):
-                    for lm in matches[i]:
-                        lm_index_frame = item[1][1][i]
-                        lm_matches[lm] += [lm_index_frame]
-                        # if i_triangle not in t_matches[lm_index]:
-                        #     t_matches[lm_index] += [i_triangle]
-                        #     lm_matches[lm_index] += [item[1][1][i]]
+                        for lm in matches[i]:
+                            lm_index_frame = item[1][1][i]
+                            lm_matches[lm] += [lm_index_frame]
+                            # if i_triangle not in t_matches[lm_index]:
+                            #     t_matches[lm_index] += [i_triangle]
+                            #     lm_matches[lm_index] += [item[1][1][i]]
 
             triangles_matched += triangles_matched_here
             max_tris_matched = max(max_tris_matched, triangles_matched_here)
@@ -619,22 +680,110 @@ class Map:
             match_dict.update({i: [match_indices[i], match_counts[i]]})
 
         argsorted = np.argsort(match_counts)
-        out = np.stack([match_indices[argsorted], argsorted, match_counts[argsorted]])
+        out = np.stack([match_indices[argsorted], argsorted, match_counts[argsorted]]).astype(int)
         print("Match counts:")
         print(np.transpose(np.flip(out, axis=1)[:, :30]))
 
-        self.matched_lms = argsorted[:30]
+        # self.matched_lms = argsorted[-30:]
+        matches = np.transpose(np.flip(out, axis=1))
+
+        transform, inliers = self.odometry_ransac(matches, landmarks)
 
         print("This query took {} seconds.".format(time.perf_counter() - tic))
 
-    def odometry_ransac(self, matches, frame_landmarks):
-        match_count = frame_landmarks.shape[0] * 3
-        min_support = 6
+        return transform, inliers
 
-        for i in range(match_count):
-            frame_index_1 = frame_index_2
-            for j in range(i + 1, match_count):
-                print("Not finished.") #if self.landmarks[j] - frame_landmarks
+    def odometry_ransac(self, matches, frame_landmarks):
+        # Number of best matches to be considered in the query.
+        match_count = frame_landmarks.shape[0] * 2
+
+        # Minimum number of inliers for proposal.
+        min_inlier_support = max(6, int(frame_landmarks.shape[0] / 2))
+
+        # Maximum amount of deviation from actual positions.
+        max_error = 2.0
+
+        # Max number of iterations to find inliers with a probability of p = 0.99
+        # under the assumption that the probability to find a inlier starting triangle is e = 0.5
+        # e = p_triangle_exists * p_correct_heap = 0.5 * 0.5
+        p_ = 0.99
+        e_ = 0.5 * 0.25 * 0.1
+        max_iterations = int(np.log(1 - p_) / np.log(1 - (e_)))
+
+        print("Starting RANSAC, max iterations is {}.".format(max_iterations))
+        num_iterations = 0
+
+        matched_frame_lms = frame_landmarks[matches[:match_count, 0], :]
+        matched_map_lms = self.landmarks[matches[:match_count, 1], :]
+
+        # The attempted first matches.
+        attempts = []
+        while True:
+            num_iterations += 1
+
+            # Find a starting attempt where all frame indices are different (otherwise we don't get a triangle):
+            # Hopefully this will never be an endless loop...
+            attempt = random.sample(range(match_count), 3)
+            while np.unique(matches[attempt, 0]).shape[0] < 3:
+                attempt = random.sample(range(match_count), 3)
+
+            # print(matched_frame_lms[attempt, :])
+            proposal_T = triangle_transform(matched_frame_lms[attempt, :].T, matched_map_lms[attempt, :].T)
+
+            transformed_frame_lms = np.dot(proposal_T, np.vstack((matched_frame_lms.T, np.ones((1, match_count))))).T[:, :3]
+            difference = np.linalg.norm(transformed_frame_lms - matched_map_lms, axis=-1)
+
+            # print(transformed_frame_lms)
+            # print(matched_map_lms)
+
+            # print(difference)
+            inliers = np.where(difference < max_error)
+            num_inliers = inliers[0].shape[0]
+
+            if num_inliers >= min_inlier_support:
+                final_T = triangle_transform(matched_frame_lms[inliers[0], :].T, matched_map_lms[inliers[0], :].T)
+                print("Finish RANSAC after {} iterations with {} inliers.".format(num_iterations, num_inliers))
+                return final_T, matches[inliers[0], :]
+
+            if num_iterations >= max_iterations:
+                print("Not enough inliers found. Exiting.")
+                break
+
+        return None, None
+
+
+def triangle_transform(a, b):
+    # a and b are column vectors. a corresponds to the moving frame, b to the inertial frame.
+    # WARNING: a and b have to be a horizontal array of column vectors.
+    a_mean = np.mean(a, axis=-1, keepdims=True)
+    b_mean = np.mean(b, axis=-1, keepdims=True)
+    # p_b_minus_a = (b_mean - a_mean).reshape(3, 1)
+
+    x_1, _, _, _ = np.linalg.lstsq((a - a_mean).T, (b - b_mean)[0, :].T, rcond=None)
+    x_2, _, _, _ = np.linalg.lstsq((a - a_mean).T, (b - b_mean)[1, :].T, rcond=None)
+    x_3, _, _, _ = np.linalg.lstsq((a - a_mean).T, (b - b_mean)[2, :].T, rcond=None)
+
+    R = np.hstack([x_1.reshape(3, 1), x_2.reshape(3, 1), x_3.reshape(3, 1)]).T
+
+    if np.isnan(R).any() or np.isinf(R).any():
+        print("Warning, R has inf or nan values.")
+        return np.eye(4)
+
+    # Make R orthogonal (rotation matrix, not scale)
+    try:
+        R = scipy.linalg.sqrtm(R.T.dot(R))
+        if np.isnan(R).any() or np.isinf(R).any():
+            print("Warning, R has inf or nan values.")
+            return np.eye(4)
+
+        R = R.dot(scipy.linalg.inv(R))
+    except scipy.linalg.LinAlgError:
+        print("Warning, singular matrix.")
+        return np.eye(4)
+
+    p_w_f = b_mean + np.dot(R, -a_mean)
+
+    return np.vstack((np.hstack((R, p_w_f)), np.array([0., 0., 0., 1.])))
 
 
 def load_frame(path, frame_indices):
@@ -642,28 +791,83 @@ def load_frame(path, frame_indices):
     data = np.array(results.values)
     frame_landmarks = []
     frame_labels = []
+    poses = []
     for i in frame_indices:
         frame_data = data[np.where(data[:, 0] == i), :][0, :, :]
         labels = frame_data[:, 2]
         frame_paths = frame_data[:, 4]
+        pose = frame_data[0, 5:8].astype(float)
         landmarks = np.zeros((len(frame_paths), 3))
         for j, f_path in enumerate(frame_paths):
             bbox = np.load(f_path + '.npy')[:, 1]
             landmarks[j, :] = (bbox[:3] + bbox[3:6]) / 2.
         frame_landmarks.append(landmarks)
         frame_labels.append(labels)
+        poses.append(pose)
 
-    return frame_landmarks, frame_labels
+    return poses, frame_landmarks, frame_labels
 
 
 if __name__ == '__main__':
-    lol = Map()
-    f_lms, f_labels = load_frame("/home/felix/vision_ws/Semantic-Features/results/_results.txt", list(range(271)))
-    lol.load_landmarks(f_lms[1:], f_labels[1:])
-    lol.compute_triangles()
-    # lol.plot_triangles()
-    lol.generate_tree()
-    lol.query_frame(f_lms[0], f_labels[0])
-    lol.render(f_lms, f_labels)
-    # lol.check_triangle()
+    map = Map()
+
+    FRAME_COUNT = 271
+
+    frame_list = list(range(FRAME_COUNT))
+    poses, f_lms, f_labels = load_frame("/home/felix/vision_ws/Semantic-Features/results/_results.txt", frame_list)
+
+    # Use every third frame for localization, all other frames for mapping
+    frames_for_localization = list(range(0, FRAME_COUNT, 3))
+    frames_for_mapping = [i for i in frame_list if i not in frames_for_localization]
+
+    map.load_landmarks([f_lms[i] for i in frames_for_mapping], [f_labels[i] for i in frames_for_mapping])
+    map.compute_triangles()
+    # map.plot_triangles()
+    map.generate_tree()
+
+    # alph = 0.5
+    # rot = np.array([[np.cos(alph), -np.sin(alph), 0], [np.sin(alph), np.cos(alph), 0], [0., 0., 1.]])
+    rot = np.eye(3)
+    # off = np.array([10.5, 5.2, 0.4])
+    pose_estimations = []
+    pose_gts = []
+    inliers = []
+    frame_lms_loc = []
+    frame_labels_loc = []
+
+    num_matched = 0
+    square_error = 0
+
+    for i in frames_for_localization:
+        if f_lms[i].shape[0] >= 6:
+            # Transform frames back into "camera frame" for query.
+            transformation, query_inliers = map.query_frame(np.dot(rot, f_lms[i].T).T - poses[i].reshape(1, 3), f_labels[i])
+            if transformation is None:
+                pose_estimations.append(None)
+            else:
+                pose_estimations.append(transformation[:3, 3])
+                num_matched += 1
+                square_error += np.linalg.norm(transformation[:3, 3] - poses[i]) ** 2
+            inliers.append(query_inliers)
+        else:
+            print("This frame has less than 6 instances - skip.")
+            pose_estimations.append(None)
+            inliers.append(None)
+
+        frame_lms_loc.append(f_lms[i])
+        frame_labels_loc.append(f_labels[i])
+        pose_gts.append(poses[i])
+
+    print("")
+    print("===================================================================")
+    print("")
+    print("Number of poses correctly matched is {} out of {}.".format(num_matched, len(pose_gts)))
+    print("RMSE: {}".format(np.sqrt(square_error / num_matched)))
+    print("")
+    print("===================================================================")
+    print("")
+
+    map.render(frame_lms_loc, frame_labels_loc, pose_estimations, pose_gts, inliers)
+    # print(rot)
+    # map.check_triangle()
 
