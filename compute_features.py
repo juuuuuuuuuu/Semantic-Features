@@ -287,10 +287,10 @@ if __name__ == '__main__':
         classes_list = []
 
     for n, data in enumerate(all_data_sort):
-        # Only processing half of the images
-        # if n % 2 == 0:
-        #     print("Skip processing frame " + data['image_id'] + '.')
-        #     continue
+        Only processing half of the images
+        if n % 2 == 0:
+           print("Skip processing frame " + data['image_id'] + '.')
+           continue
 
         frame_id = int(data['image_id'])
         print("Processing frame " + data['image_id'] + '.')
