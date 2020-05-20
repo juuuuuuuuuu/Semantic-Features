@@ -6,14 +6,13 @@ import json
 import math
 import matplotlib.pyplot as plt
 from sklearn import linear_model
-from skimage.measure import LineModelND, ransac
 from operator import itemgetter
 
 from tools import utils
 
-QUANTILE = True
+QUANTILE = False
 FIT_LINE = False
-FIT_BOX = False
+FIT_BOX = True
 MERGE_BBOXES = True
 
 # Choose number of filter for mergedbbox
@@ -193,7 +192,7 @@ def get_bbox(pcl):
 
 if __name__ == '__main__':
     basedir = 'content/kitti_dataset/dataset'
-    sequence = '04'
+    sequence = '08'
 
     dataset = pykitti.odometry(basedir, sequence)
     baseline = dataset.calib.b_rgb
@@ -223,7 +222,7 @@ if __name__ == '__main__':
     for x in sorted(all_data, key = itemgetter('image_id')):
         all_data_sort.append(x)
 
-    path = "content/kitti_dataset/dataset/sequences/04"
+    path = "content/kitti_dataset/dataset/sequences/08"
     out_path = "results"
 
     results = []
@@ -284,7 +283,10 @@ if __name__ == '__main__':
                 u, v, z = expand_concat(u, v, z, u[:,1], v[:,1], z[:,1])
 
             if FIT_BOX:
-                u, v, z = expand_concat(u, v, z, u[:,1], v[:,1], z[:,1])
+                u = np.expand_dims(u, axis=1)
+                v = np.expand_dims(v, axis=1)
+                z = np.expand_dims(z, axis=1)
+                #u, v, z = expand_concat(u, v, z, u[:,1], v[:,1], z[:,1])
 
             point_cloud = np.zeros((4, np.size(z,0), num_filt))
             for j in range(z.shape[0]):
