@@ -21,7 +21,7 @@ mbboxnr = 1
 # Choose error for merging bboxes
 inflation = 0.1
 
-num_filt = 2
+num_filt = 1
 
 
 def isOverlapping1D(xmin1, xmin2, xmax1, xmax2) :
@@ -100,7 +100,9 @@ def fit_line(pcl, class_id):
         x = np.where(inlier_opt, x, np.nan)
         y = np.where(inlier_opt, y, np.nan)
         z = np.where(inlier_opt, z, np.nan)
-        
+        x = x[inlier_opt]
+        y = y[inlier_opt]
+        z = z[inlier_opt]
         return x, y, z
     else:
         return x, y, z
@@ -156,10 +158,12 @@ def fit_box(pcl, class_id):
         if max(density) > density_opt:
             density_opt = max(density)
             inlier_opt = inlier_sample
-
-    x = np.where(inlier_opt, x, np.nan)
-    y = np.where(inlier_opt, y, np.nan)
-    z = np.where(inlier_opt, z, np.nan)
+    x = x[inlier_opt]
+    y = y[inlier_opt]
+    z = z[inlier_opt]
+    #x = np.where(inlier_opt, x, np.nan)
+    #y = np.where(inlier_opt, y, np.nan)
+    #z = np.where(inlier_opt, z, np.nan)
     return x, y, z
     
 
@@ -235,9 +239,9 @@ if __name__ == '__main__':
 
     for n, data in enumerate(all_data_sort):
         # Only processing half of the images
-        #if n % 2 == 0:
-        #    print("Skip processing frame " + data['image_id'] + '.')
-        #    continue
+        if n > len(all_data_sort)*0.5:
+            print("Stop at frame " + data['image_id'] + '.')
+            break
 
         frame_id = int(data['image_id'])
         print("Processing frame " + data['image_id'] + '.')
@@ -298,8 +302,10 @@ if __name__ == '__main__':
             if FIT_LINE:
                 point_cloud[0:3, :, -2] = fit_line(point_cloud[0:3,:, 0], class_ids[i])
             if FIT_BOX:
-                point_cloud[0:3, :, -1] = fit_box(point_cloud[0:3,:, 0], class_ids[i])
-
+                p_res = fit_box(point_cloud[0:3, :, 0], class_ids[i])
+                point_cloud = np.ones((4, np.size(p_res[0], 0), num_filt))
+                if p_res[0].size > 0:
+                    point_cloud[0:3, :, -1] = p_res
             point_cloud = point_cloud.reshape((4, -1))
             transform = T_w0_w.dot(dataset.poses[frame_id].dot(T_cam0_cam2))
 
