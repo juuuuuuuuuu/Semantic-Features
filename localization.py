@@ -197,7 +197,7 @@ def render_landmarks(landmarks, labels, label_colors, size=0.5):
     for i in range(len(landmarks)):
         box = o3d.geometry.AxisAlignedBoundingBox(min_bound=landmarks[i, :] - size_vec,
                                                   max_bound=landmarks[i, :] + size_vec)
-        box.color = label_colors[labels[i]]
+        box.color = label_colors[int(labels[i])]
         boxes.append(box)
 
     return boxes
@@ -315,6 +315,7 @@ class Map:
         self.min_inliers = 5
 
     def load_landmarks(self, frame_lms, frame_labels):
+        print(frame_lms[92])
         map_landmarks = np.vstack(frame_lms)
         map_landmark_labels = np.concatenate(frame_labels, axis=0)
 
@@ -851,18 +852,33 @@ def load_frame(path, frame_indices):
     poses = []
     for i in frame_indices:
         frame_data = data[np.where(data[:, 0] == i), :][0, :, :]
-        labels = frame_data[:, 2]
-        frame_paths = frame_data[:, 4]
-        pose = frame_data[0, 5:8].astype(float)
-        landmarks = np.zeros((len(frame_paths), 3))
-        for j, f_path in enumerate(frame_paths):
-            bbox = np.load(f_path + '.npy')[:, 1]
-            landmarks[j, :] = (bbox[:3] + bbox[3:6]) / 2.
-        landmarks = np.delete(landmarks, np.where([np.isnan(landmarks[i, :]).any() for i in range(landmarks.shape[0])]), axis=0)
-        frame_landmarks.append(landmarks)
-        frame_labels.append(labels)
-        poses.append(pose)
-        print(landmarks)
+        if frame_data.shape[0] > 0:
+            labels = frame_data[:, 2]
+            frame_paths = frame_data[:, 4]
+            pose = frame_data[0, 5:8].astype(float)
+            landmarks = np.zeros((len(frame_paths), 3))
+            for j, f_path in enumerate(frame_paths):
+                bbox = np.load(f_path + '.npy')[:, 1]
+                landmarks[j, :] = (bbox[:3] + bbox[3:6]) / 2.
+            landmarks = np.delete(landmarks, np.where([np.isnan(landmarks[i, :]).any() for i in
+                                                       range(landmarks.shape[0])]), axis=0)
+
+            if landmarks.shape[0] > 0:
+                frame_landmarks.append(landmarks)
+                frame_labels.append(labels)
+                poses.append(pose)
+            else:
+                frame_landmarks.append(np.ones((1, 3)) * -1000)
+                frame_labels.append(np.zeros((1,)))
+                poses.append(pose)
+                print("Empty frame.")
+        else:
+            frame_landmarks.append(np.ones((1, 3)) * -1000)
+            frame_labels.append(np.zeros((1,)))
+            poses.append(np.zeros((1, 3)))
+            print("Empty frame.")
+
+        print(frame_labels[i].shape)
 
     return poses, frame_landmarks, frame_labels
 
@@ -871,7 +887,7 @@ if __name__ == '__main__':
     map = Map()
     np.random.seed(10)
 
-    FRAME_COUNT = 100
+    FRAME_COUNT = 200
     MIN_INLIER = 5
 
     frame_list = list(range(FRAME_COUNT))
