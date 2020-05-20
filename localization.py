@@ -858,9 +858,11 @@ def load_frame(path, frame_indices):
         for j, f_path in enumerate(frame_paths):
             bbox = np.load(f_path + '.npy')[:, 1]
             landmarks[j, :] = (bbox[:3] + bbox[3:6]) / 2.
+        landmarks = np.delete(landmarks, np.where([np.isnan(landmarks[i, :]).any() for i in range(landmarks.shape[0])]), axis=0)
         frame_landmarks.append(landmarks)
         frame_labels.append(labels)
         poses.append(pose)
+        print(landmarks)
 
     return poses, frame_landmarks, frame_labels
 
