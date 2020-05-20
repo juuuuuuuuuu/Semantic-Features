@@ -312,6 +312,7 @@ class Map:
         self.oct_trees = {}
         self.all_landmarks = []
         self.all_landmark_labels = []
+        self.min_inliers = 5
 
     def load_landmarks(self, frame_lms, frame_labels):
         map_landmarks = np.vstack(frame_lms)
@@ -696,7 +697,7 @@ class Map:
 
     def odometry_ransac(self, matches, frame_landmarks):
         # Minimum number of inliers for proposal.
-        min_inlier_support = max(6, int(frame_landmarks.shape[0] / 2))
+        min_inlier_support = max(self.min_inliers, int(frame_landmarks.shape[0] / 2))
 
         # Number of best matches to be considered in the query.
         match_count = frame_landmarks.shape[0] * 2
@@ -742,8 +743,15 @@ class Map:
                 previous_num_inliers = 0
                 while previous_num_inliers < num_inliers:
                     previous_num_inliers = num_inliers
-                    num_inliers, inliers, final_T = \
+                    previous_T = proposal_T
+                    previous_inliers = inliers
+                    num_inliers, inliers, proposal_T = \
                         find_inliers(matched_frame_lms, matched_map_lms, inliers, max_error)
+                    if num_inliers > previous_num_inliers:
+                        final_T = proposal_T
+                    else:
+                        final_T = previous_T
+                        inliers = previous_inliers
                 print("Finish RANSAC after {} iterations with {} inliers.".format(num_iterations, num_inliers))
                 return final_T, matches[inliers, :]
 
@@ -824,6 +832,17 @@ def fix_rotation(r):
     return np.vstack((x_new, y_new, z_new))
 
 
+def get_random_rot():
+    a = np.random.random(3) * np.array([np.pi * 2, np.pi * 2, np.pi * 2])
+    print(a)
+
+    rot_z = np.array([[np.cos(a[0]), -np.sin(a[0]), 0], [np.sin(a[0]), np.cos(a[0]), 0], [0., 0., 1.]])
+    rot_y = np.array([[np.cos(a[1]), 0, -np.sin(a[1])], [0., 1., 0.], [np.sin(a[1]), 0, np.cos(a[1])]])
+    rot_x = np.array([[1., 0., 0.], [0, np.cos(a[2]), -np.sin(a[2])], [0, np.sin(a[2]), np.cos(a[2])]])
+
+    return np.dot(rot_z, np.dot(rot_y, rot_x))
+
+
 def load_frame(path, frame_indices):
     results = pd.read_csv(path, header=None, sep=' ')
     data = np.array(results.values)
@@ -839,17 +858,21 @@ def load_frame(path, frame_indices):
         for j, f_path in enumerate(frame_paths):
             bbox = np.load(f_path + '.npy')[:, 1]
             landmarks[j, :] = (bbox[:3] + bbox[3:6]) / 2.
+        landmarks = np.delete(landmarks, np.where([np.isnan(landmarks[i, :]).any() for i in range(landmarks.shape[0])]), axis=0)
         frame_landmarks.append(landmarks)
         frame_labels.append(labels)
         poses.append(pose)
+        print(landmarks)
 
     return poses, frame_landmarks, frame_labels
 
 
 if __name__ == '__main__':
     map = Map()
+    np.random.seed(10)
 
-    FRAME_COUNT = 271
+    FRAME_COUNT = 100
+    MIN_INLIER = 5
 
     frame_list = list(range(FRAME_COUNT))
     poses, f_lms, f_labels = load_frame("/home/felix/vision_ws/Semantic-Features/results/_results.txt", frame_list)
@@ -862,10 +885,6 @@ if __name__ == '__main__':
     map.compute_triangles()
     # map.plot_triangles()
     map.generate_tree()
-
-    alph = 1.2
-    rot_z = np.array([[np.cos(alph), -np.sin(alph), 0], [np.sin(alph), np.cos(alph), 0], [0., 0., 1.]])
-    rot_y = np.array([[np.cos(alph), 0, -np.sin(alph)], [0., 1., 0.], [np.sin(alph), 0, np.cos(alph)]])
     # rot = np.eye(3)271
     # off = np.array([10.5, 5.2, 0.4])
     pose_estimations = []
@@ -879,9 +898,9 @@ if __name__ == '__main__':
     square_error = 0
 
     for i in frames_for_localization:
-        if f_lms[i].shape[0] >= 6:
+        if f_lms[i].shape[0] >= MIN_INLIER:
             # Transform frames back into "camera frame" for query.
-            transformation, query_inliers = map.query_frame(np.dot(np.dot(rot_z, rot_y), (f_lms[i] - poses[i].reshape(1, 3)).T).T,
+            transformation, query_inliers = map.query_frame(np.dot(get_random_rot(), (f_lms[i] - poses[i].reshape(1, 3)).T).T,
                                                             f_labels[i])
             if transformation is None:
                 pose_estimations.append(None)
