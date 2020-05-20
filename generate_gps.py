@@ -34,8 +34,7 @@ for image_path in image_paths:
             "gps": {
             "latitude": lat,
             "longitude": long,
-            "altitude": z,
-            "dop": 5.0
+            "altitude": z
              }
     }
 
