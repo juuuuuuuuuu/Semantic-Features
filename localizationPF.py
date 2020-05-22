@@ -23,11 +23,6 @@ P0 = 0.2
 w = np.array([0.0, 0.0, 1.0])
 v_t = np.array([1.0, 0.0, 0.0])
 
-T_w0_w = np.array([[ 0., 0., 1., 0.],
-                   [-1., 0., 0., 0.],
-                   [ 0.,-1., 0., 0.],
-                   [ 0., 0., 0., 1.]])
-
 R_init = lambda th: np.array([[np.cos(th), -np.sin(th), 0.0],
                   [np.sin(th), np.cos(th), 0.0],
                    [0.0, 0.0, 1.0]])
@@ -65,15 +60,19 @@ def load_frame(path):
     data = np.array(results.values)
     U = []
     D = []
-    image_ids = []
+    poses = []
+    image_id = data[0][0]
     for row in data:
         landm_path = row[3]
         pcl = np.load(landm_path + '.npy')
         U.append(pcl)
         D.append(row[2])
-        image_ids.append(row[0])
-    image_ids = np.unique(image_ids)
-    return U, D, image_ids
+        if row[0] != image_id:
+            pose_path = row[8]
+            pose = np.load(pose_path + '.npy')
+            poses.append(pose)
+            image_id = row[0]
+    return U, D, poses
 
 
 def get_instances(path, image_id):
@@ -88,10 +87,9 @@ def motion_update(w_t, v_t):
     q_v = np.random.normal(0.0, std_v, size=2)
     q_v = np.array([q_v[0], q_v[1], 0.0])
     twist = np.zeros((4, 4))
-    twist[0:3, 0:3] = expm(w_x(w_t + q_w))
-    twist[0:3, 3] = v_t + q_v
+    twist[0:3, 0:3] = expm(w_x(w_t*dt + q_w))
+    twist[0:3, 3] = dt*v_t + q_v
     twist[3, 3] = 1.0
-    #print(twist)
     return twist
 
 
@@ -117,10 +115,8 @@ def get_gt_velocities(poses):
     linear_velocities = []
     angular_velocities = []
     for i in range(len(poses) - 1):
-        linear_v = poses[i][:3, :3].T.dot(poses[i + 1][:3, 3] - poses[i][:3, 3])
-        linear_velocities.append(linear_v)
-        rotational_v = get_delta_rot(poses[i + 1][:3, :3], poses[i][:3, :3])
-        angular_velocities.append(rotational_v)
+        linear_velocities.append(poses[i + 1][:3, 3] - poses[i][:3, 3])
+        angular_velocities.append(get_delta_rot(poses[i + 1][:3, :3], poses[i][:3, :3]))
 
     return linear_velocities, angular_velocities
 
@@ -135,8 +131,7 @@ if __name__ == '__main__':
     Kmat = dataset.calib.P_rect_20[0:3, 0:3]
     #Kmat = np.concatenate((Kmat, np.array([0, 0, 0, 1]).reshape(4,1)), axis=1)
     print(Kmat)
-    U, D, image_ids = load_frame(results_path)
-    poses = [T_w0_w.dot(dataset.poses[image_id]) for image_id in image_ids]
+    U, D, poses = load_frame(results_path)
     # initialize particles and weights
     N = 100
     particles = np.zeros((N, 4, 4))
@@ -147,26 +142,25 @@ if __name__ == '__main__':
         # particles[i, 3,:] = [0.0, 0.0, 0.0, 1]
         # randpose = np.random.randint(0,len(poses))
         # particles[i, 0:3, 3] = poses[randpose][0:3,3]
-        particles[i] = poses[0]
+        particles[i] = poses[i]
     print(particles[0])
 
     # Motion update
 
     # measure w_t and v_t
-    v, w = get_gt_velocities(poses)
+    w, v = get_gt_velocities(poses)
+    w_t = np.random.normal(0.0, std_w, size=3)
+    v_t = np.random.normal(0.0, std_v, size=3)
     particle_poses_all = []
     for w_t, v_t in zip(w, v):
-        print(w_t)
         particle_poses = np.zeros((N, 3))
         for i in range(N):
             particles[i] = motion_update(w_t, v_t).dot(particles[i])
             particle_poses[i] = particles[i][0:3, 3]
         particle_poses_all.append(particle_poses)
-    particle_poses_all = np.asarray(particle_poses_all)
-    print(particle_poses_all.shape)
     measurement_model_path = os.path.join(ROOT_DIR, "particle_poses")
     np.save(measurement_model_path, particle_poses_all, allow_pickle=False)
-    print(particle_poses_all[:, 0, :])
+    print(particles[0])
 
     # project particles onto trajectory
     proj_ind = np.random.choice(list(range(N)), int(N*alpha))
