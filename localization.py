@@ -850,7 +850,9 @@ def load_frame(path, frame_indices):
     frame_landmarks = []
     frame_labels = []
     poses = []
-    for i in frame_indices:
+    empty_frames = []
+    ind_map = {}
+    for n, i in enumerate(frame_indices):
         frame_data = data[np.where(data[:, 0] == i), :][0, :, :]
         if frame_data.shape[0] > 0:
             labels = frame_data[:, 2]
@@ -858,7 +860,7 @@ def load_frame(path, frame_indices):
             pose = frame_data[0, 5:8].astype(float)
             landmarks = np.zeros((len(frame_paths), 3))
             for j, f_path in enumerate(frame_paths):
-                bbox = np.load(f_path + '.npy')[:, 1]
+                bbox = np.load(f_path + '.npy')[:, 0]
                 landmarks[j, :] = (bbox[:3] + bbox[3:6]) / 2.
             landmarks = np.delete(landmarks, np.where([np.isnan(landmarks[i, :]).any() for i in
                                                        range(landmarks.shape[0])]), axis=0)
@@ -867,20 +869,23 @@ def load_frame(path, frame_indices):
                 frame_landmarks.append(landmarks)
                 frame_labels.append(labels)
                 poses.append(pose)
+                ind_map[i] = len(poses)-1
             else:
                 frame_landmarks.append(np.ones((1, 3)) * -1000)
                 frame_labels.append(np.zeros((1,)))
                 poses.append(pose)
                 print("Empty frame.")
+                empty_frames.append(i)
         else:
             frame_landmarks.append(np.ones((1, 3)) * -1000)
             frame_labels.append(np.zeros((1,)))
             poses.append(np.zeros((1, 3)))
             print("Empty frame.")
+            empty_frames.append(i)
 
-        print(frame_labels[i].shape)
+        print(frame_labels[n].shape)
 
-    return poses, frame_landmarks, frame_labels
+    return poses, frame_landmarks, frame_labels, empty_frames, ind_map
 
 
 if __name__ == '__main__':
@@ -890,14 +895,22 @@ if __name__ == '__main__':
     FRAME_COUNT = 200
     MIN_INLIER = 5
 
-    frame_list = list(range(FRAME_COUNT))
-    poses, f_lms, f_labels = load_frame("/home/felix/vision_ws/Semantic-Features/results/_results.txt", frame_list)
+    #frame_list = list(range(10, 253)) + list(range(1580, 1828))
+    frames_for_localization = list(range(1372, 1513))
+    frames_for_mapping = list(range(693, 804))
+    frame_list = frames_for_localization + frames_for_mapping
+    poses, f_lms, f_labels, empty_frames, ind_map = load_frame("/home/julius/Desktop/3DVision/99_repo/Semantic-Features/results/_results.txt", frame_list)
 
     # Use every third frame for localization, all other frames for mapping
-    frames_for_localization = list(range(0, FRAME_COUNT, 3))
-    frames_for_mapping = [i for i in frame_list if i not in frames_for_localization]
 
-    map.load_landmarks([f_lms[i] for i in frames_for_mapping], [f_labels[i] for i in frames_for_mapping])
+    print(len(frames_for_localization))
+    print(len(frames_for_mapping))
+    frames_for_localization = [i for i in frames_for_localization if i not in empty_frames]
+    frames_for_mapping = [i for i in frames_for_mapping if i not in empty_frames]
+    print(len(frames_for_localization))
+    print(len(frames_for_mapping))
+    print(ind_map)
+    map.load_landmarks([f_lms[ind_map[i]] for i in frames_for_mapping], [f_labels[ind_map[i]] for i in frames_for_mapping])
     map.compute_triangles()
     # map.plot_triangles()
     map.generate_tree()
@@ -914,26 +927,27 @@ if __name__ == '__main__':
     square_error = 0
 
     for i in frames_for_localization:
-        if f_lms[i].shape[0] >= MIN_INLIER:
+        ind = ind_map[i]
+        if f_lms[ind].shape[0] >= MIN_INLIER:
             # Transform frames back into "camera frame" for query.
-            transformation, query_inliers = map.query_frame(np.dot(get_random_rot(), (f_lms[i] - poses[i].reshape(1, 3)).T).T,
-                                                            f_labels[i])
+            transformation, query_inliers = map.query_frame(np.dot(get_random_rot(), (f_lms[ind] - poses[ind].reshape(1, 3)).T).T,
+                                                            f_labels[ind])
             if transformation is None:
                 pose_estimations.append(None)
             else:
                 pose_estimations.append(transformation[:3, 3])
                 transformations.append(transformation)
                 num_matched += 1
-                square_error += np.linalg.norm(transformation[:3, 3] - poses[i]) ** 2
+                square_error += np.linalg.norm(transformation[:3, 3] - poses[ind]) ** 2
             inliers.append(query_inliers)
         else:
             print("This frame has less than 6 instances - skip.")
             pose_estimations.append(None)
             inliers.append(None)
 
-        frame_lms_loc.append(f_lms[i])
-        frame_labels_loc.append(f_labels[i])
-        pose_gts.append(poses[i])
+        frame_lms_loc.append(f_lms[ind])
+        frame_labels_loc.append(f_labels[ind])
+        pose_gts.append(poses[ind])
 
     print("")
     print("===================================================================")
