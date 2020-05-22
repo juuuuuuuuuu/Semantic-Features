@@ -9,7 +9,8 @@ import matplotlib.pyplot as plt
 
 
 class LandmarkRenderer:
-    def __init__(self, poses, landmarks, landmark_pcls, landmark_bbox, labels, frame_ids, label_colors, mbboxes, class_id):
+    def __init__(self, poses, landmarks, landmark_pcls, landmark_bbox, labels, frame_ids,
+                 label_colors, mbboxes, class_id, particles):
         self.poses = poses
         self.landmarks = landmarks
         self.landmark_pcls = landmark_pcls
@@ -29,6 +30,8 @@ class LandmarkRenderer:
         self.render_mbboxes = False
         self.mbboxes = mbboxes
         self.class_id = class_id
+        self.particles = particles
+        self.particle_pointer = 0
 
         self.landmark_render_objects = render_pcls(self.poses,
                                                    self.landmark_pcls,
@@ -36,8 +39,8 @@ class LandmarkRenderer:
                                                    self.lm_labels,
                                                    self.label_colors,
                                                    None)
-                                                
-        self.mbboxes_rendered = render_mbboxes_func(self.label_colors, self.mbboxes, self.class_id)
+
+        # self.mbboxes_rendered = render_mbboxes_func(self.label_colors, self.mbboxes, self.class_id)
 
         self.ground_grid = render_ground_grid()
 
@@ -54,6 +57,8 @@ class LandmarkRenderer:
         vis.register_key_callback(ord("S"), self.get_screen_cap_callback())
         vis.register_key_callback(ord("G"), self.get_switch_method())
         vis.register_key_callback(ord("H"), self.get_show_mbboxes())
+        vis.register_key_callback(ord("L"), self.get_switch_particle_callback(forward=True))
+        vis.register_key_callback(ord("K"), self.get_switch_particle_callback(forward=False))
         
 
         print("Press 'A' to toggle between show all and show only one frame.")
@@ -83,6 +88,7 @@ class LandmarkRenderer:
             for mbbox in self.mbboxes_rendered:
                 vis.add_geometry(mbbox)
 
+        vis.add_geometry(render_particles(self.particles[self.particle_pointer, :, :]))
 
         if self.render_boxes:
             if self.render_single_frame:
@@ -168,6 +174,20 @@ class LandmarkRenderer:
 
         return switch_index
 
+    def get_switch_particle_callback(self, forward):
+        def switch_index(vis):
+            if forward:
+                self.particle_pointer = self.particle_pointer + 1
+            else:
+                self.particle_pointer = self.particle_pointer - 1
+            self.particle_pointer = self.particle_pointer % self.particles.shape[0]
+
+            print("Now showing particles {}/{}".format(
+                self.particle_pointer + 1, self.particles.shape[0]))
+            self.update_render(vis)
+
+        return switch_index
+
     def get_switch_method(self):
         def switch_method(vis):
             if self.method < self.num_methods - 1:
@@ -208,6 +228,11 @@ def render_mbboxes_func(label_colors, mbboxes, class_id):
     return merged_boxes
 
 
+def render_particles(particles):
+    pcl = o3d.geometry.PointCloud(points=o3d.utility.Vector3dVector(particles))
+    return pcl
+
+
 def render_pcls(poses, pcls, bbox, labels, label_colors, indices):
     geometries = []
 
@@ -229,7 +254,7 @@ def render_pcls(poses, pcls, bbox, labels, label_colors, indices):
             if pcl_i.size > 0:
                 # print(pcl_i)
                 pcl = o3d.geometry.PointCloud(
-                points=o3d.utility.Vector3dVector(np.transpose(pcl_i).astype(float))
+                    points=o3d.utility.Vector3dVector(np.transpose(pcl_i).astype(float))
                 )
                 pcl.colors = o3d.utility.Vector3dVector([label_colors[labels[i]] for j in range(pcl_i.shape[1])])
                 g_m.append(pcl)
@@ -326,8 +351,9 @@ def load_data(path, n):
     frame_ids = np.array(frame_ids, dtype=int)
     poses = np.array(poses, dtype=float)
     #ToDo change path:
-    mergedbboxes = np.load("results/mergedbbox.npy")
-    class_id = np.load("results/classes_list.npy")
+    # mergedbboxes = np.load("results/mergedbbox.npy")
+    mergedbboxes = None
+    class_id = None # np.load("results/classes_list.npy")
     return poses, pcls, bbox, labels, frame_ids, mergedbboxes, class_id
 
 
@@ -345,12 +371,14 @@ def load_lines(path):
 if __name__ == '__main__':
     path = "results/_results.txt"
 
-    poses, pcls, bbox, labels, frame_ids, mergedbboxes, class_id = load_data(path, 1000000)
+    poses, pcls, bbox, labels, frame_ids, mergedbboxes, class_id = load_data(path, 500)
 
     #pcl_test = [np.load("pcl_test.npy")]
     #labels_test = np.array([0])
     #frame_ids = np.array([0])
+    particles = np.load("/home/felix/vision_ws/Semantic-Features/particle_poses.npy")
 
     print("Number of landmarks is: {}".format(labels.shape[0]))
-    renderer = LandmarkRenderer(poses, None, pcls, bbox, labels, frame_ids, get_colors(), mergedbboxes, class_id)
+    renderer = LandmarkRenderer(poses, None, pcls, bbox, labels, frame_ids, get_colors(), mergedbboxes, class_id,
+                                particles)
     renderer.run()
