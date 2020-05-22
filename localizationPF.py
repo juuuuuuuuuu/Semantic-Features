@@ -10,8 +10,8 @@ import scipy.spatial.transform.rotation as r
 
 dt = 1/20
 max_vis = 30.0
-std_w = 0.01
-std_v = 3
+std_w = 0
+std_v = 0
 # fraction of particles to project onto road
 alpha = 0.2
 # probability of detection of a point
@@ -82,11 +82,13 @@ def get_instances(path, image_id):
 
 
 def motion_update(w_t, v_t):
-    q_w = np.random.normal(0.0, std_w, size=3)
-    q_v = np.random.normal(0.0, std_v, size=3)
-    twist = np.zeros((4,4))
-    twist[0:3,0:3] = expm(w_x(w_t*dt + q_w))
-    twist[0:3,3] = dt*v_t +q_v
+    q_w = np.random.normal(0.0, std_w, size=1)
+    q_w = np.array([0.0, 0.0, q_w])
+    q_v = np.random.normal(0.0, std_v, size=2)
+    q_v = np.array([q_v[0], q_v[1], 0.0])
+    twist = np.zeros((4, 4))
+    twist[0:3, 0:3] = expm(w_x(w_t*dt + q_w))
+    twist[0:3, 3] = dt*v_t + q_v
     twist[3, 3] = 1.0
     return twist
 
@@ -126,28 +128,29 @@ if __name__ == '__main__':
     basedir = 'content/kitti_dataset/dataset'
     sequence = '08'
     dataset = pykitti.odometry(basedir, sequence)
-    #Kmat = dataset.calib.P_rect_20
+    Kmat = dataset.calib.P_rect_20[0:3, 0:3]
     #Kmat = np.concatenate((Kmat, np.array([0, 0, 0, 1]).reshape(4,1)), axis=1)
-    #print(Kmat)
+    print(Kmat)
     U, D, poses = load_frame(results_path)
     # initialize particles and weights
     N = 100
     particles = np.zeros((N, 4, 4))
     weights = np.ones(N)*1/N
     for i in range(N):
-        th = np.pi * np.random.uniform(0, 2)
-        particles[i,0:3, 0:3] = R_init(th)
-        particles[i, 3,:] = [0.0, 0.0, 0.0, 1]
-        randpose = np.random.randint(0,len(poses))
-        particles[i, 0:3, 3] = poses[randpose][0:3,3]
+        # th = np.pi * np.random.uniform(0, 2)
+        # particles[i,0:3, 0:3] = R_init(th)
+        # particles[i, 3,:] = [0.0, 0.0, 0.0, 1]
+        # randpose = np.random.randint(0,len(poses))
+        # particles[i, 0:3, 3] = poses[randpose][0:3,3]
+        particles[i] = poses[i]
     print(particles[0])
 
     # Motion update
 
-    #measure w_t and v_t
+    # measure w_t and v_t
     w, v = get_gt_velocities(poses)
-    #w_t = np.random.normal(0.0, std_w, size=3)
-    #v_t = np.random.normal(0.0, std_v, size=3)
+    w_t = np.random.normal(0.0, std_w, size=3)
+    v_t = np.random.normal(0.0, std_v, size=3)
     particle_poses_all = []
     for w_t, v_t in zip(w, v):
         particle_poses = np.zeros((N, 3))
@@ -160,15 +163,14 @@ if __name__ == '__main__':
     print(particles[0])
 
     # project particles onto trajectory
-    proj_ind = np.random.choice(list(range(N)),int(N*alpha))
+    proj_ind = np.random.choice(list(range(N)), int(N*alpha))
     for i in proj_ind:
         position = particles[i][0:3, 3]
-        print(np.asarray(poses)[:, 0:3, 3])
         dist = ((np.asarray(poses)[:, 0:3, 3] - position)**2).sum(axis=1)**0.5
         sorted_indices = np.argpartition(dist, 1)
         proj = proj_trajectory(sorted_indices, poses)
-        print("proj: {}".format(proj))
-        print("position: {}".format(position))
+        #print("proj: {}".format(proj))
+        #print("position: {}".format(position))
         particles[i][0:3, 3] = proj
 
     # select local map to project into image plane
@@ -176,18 +178,18 @@ if __name__ == '__main__':
         map = []
         feat = []
         for j, u in enumerate(U):
-            coord_mean = u[0:3,:,0].mean(axis=1)
+            coord_mean = u[0:3, :, 0].mean(axis=1)
             #print(coord_mean.shape)
-            dist = np.linalg.norm(coord_mean - particles[i][0:3,3])
+            dist = np.linalg.norm(coord_mean - particles[i][0:3, 3])
             if dist > max_vis:
                 map.append(u[0:3, :, 0])
                 feat.append(D[j])
 
         #project map points into image plane
-        """
         R_t = particles[i][0:3, 0:3].T
-        t = particles[i][0:3, 3]
-        R_t = np.concatenate(R_t, -R_t.dot(t), axis=1)
+        t = particles[i][0:3, 3].reshape((3, 1))
+        R_t = np.concatenate((R_t, -R_t.dot(t)), axis=1)[0:3, :]
         KRmat = Kmat.dot(R_t)
-        proj_im = KRmat.dot(particles[i][0:3, 3])
-        """
+        im_x, im_y, im_z = KRmat.dot(particles[i][0:3, 3])
+        im_x = im_x / im_z
+        im_y = im_y / im_z
