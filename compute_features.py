@@ -76,6 +76,10 @@ def fit_line(pcl, class_id):
         d = len(x) *0.2
         error_opt = np.Inf
         inlier_opt = np.array([False]*len(x))
+        y_min = []
+        y_max = []
+        x_opt = []
+        z_opt = []
         # Subsample minimum number of datapoints to create model 
         subsets = np.random.choice(indices, N)
         for subset in subsets:
@@ -97,19 +101,27 @@ def fit_line(pcl, class_id):
                 if error < error_opt:
                     error_opt = error
                     inlier_opt = inlier_mask
-        x = np.where(inlier_opt, x, np.nan)
-        y = np.where(inlier_opt, y, np.nan)
-        z = np.where(inlier_opt, z, np.nan)
-        x = x[inlier_opt]
-        y = y[inlier_opt]
-        z = z[inlier_opt]
+                    y_min = y[inlier_mask].min()
+                    y_max = y[inlier_mask].max()
+                    x_opt = x[inlier_mask].mean()
+                    z_opt = z[inlier_mask].mean()
+        #x = np.where(inlier_opt, x, np.nan)
+        #y = np.where(inlier_opt, y, np.nan)
+        #z = np.where(inlier_opt, z, np.nan)
+        #x = x[inlier_opt]
+        #y = y[inlier_opt]
+        #z = z[inlier_opt]
+        #if x_opt.size > 0:
+        x = np.array([x_opt,x_opt])
+        z = np.array([z_opt,z_opt])
+        y = np.array([y_min, y_max])
         return x, y, z
     else:
         return x, y, z
 
 
 def fit_box(pcl, class_id):
-    """ fits a line to pointclouds, that are labeled as pole"""
+    """ fits a maximally dense box to pointclouds"""
     # camera coordinates
     x, y, z = pcl
     if class_id == 10:
