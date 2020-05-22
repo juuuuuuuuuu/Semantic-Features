@@ -67,6 +67,8 @@ class LandmarkRenderer:
         print("Press 'S' to capture screenshot.")
         print("Press G to switch postprocessing method.")
         print("Press h to show merged bounding boxes.")
+        print("Press 'L' to switch to next particle time step.")
+        print("Press 'K' to switch to previous particle time step.")
         print("num_methods: {}".format(self.num_methods))
         for i, geometries in enumerate(self.landmark_render_objects):
             geometries = geometries[0::self.num_methods][0]
