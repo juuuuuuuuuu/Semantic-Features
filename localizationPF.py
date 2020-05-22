@@ -115,8 +115,10 @@ def get_gt_velocities(poses):
     linear_velocities = []
     angular_velocities = []
     for i in range(len(poses) - 1):
-        linear_velocities.append(poses[i + 1][:3, 3] - poses[i][:3, 3])
-        angular_velocities.append(get_delta_rot(poses[i + 1][:3, :3], poses[i][:3, :3]))
+        linear_v = poses[i][:3, :3].T.dot(poses[i + 1][:3, 3] - poses[i][:3, 3])
+        linear_velocities.append(linear_v)
+        rotational_v = poses[i][:3, :3].T.dot(get_delta_rot(poses[i + 1][:3, :3], poses[i][:3, :3]))
+        angular_velocities.append(rotational_v)
 
     return linear_velocities, angular_velocities
 
@@ -142,13 +144,13 @@ if __name__ == '__main__':
         # particles[i, 3,:] = [0.0, 0.0, 0.0, 1]
         # randpose = np.random.randint(0,len(poses))
         # particles[i, 0:3, 3] = poses[randpose][0:3,3]
-        particles[i] = poses[i]
+        particles[i] = poses[0]
     print(particles[0])
 
     # Motion update
 
     # measure w_t and v_t
-    w, v = get_gt_velocities(poses)
+    v, w = get_gt_velocities(poses)
     w_t = np.random.normal(0.0, std_w, size=3)
     v_t = np.random.normal(0.0, std_v, size=3)
     particle_poses_all = []
