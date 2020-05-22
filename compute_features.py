@@ -111,10 +111,14 @@ def fit_line(pcl, class_id):
         #x = x[inlier_opt]
         #y = y[inlier_opt]
         #z = z[inlier_opt]
-        #if x_opt.size > 0:
-        x = np.array([x_opt,x_opt])
-        z = np.array([z_opt,z_opt])
-        y = np.array([y_min, y_max])
+        if x_opt.size > 0:
+            x = np.array([x_opt,x_opt])
+            z = np.array([z_opt,z_opt])
+            y = np.array([y_min, y_max])
+        else:
+            x = x_opt
+            y = y_min
+            z = z_opt
         return x, y, z
     else:
         return x, y, z
@@ -317,6 +321,7 @@ if __name__ == '__main__':
                 p_res = fit_box(point_cloud[0:3, :, 0], class_ids[i])
                 point_cloud = np.ones((4, np.size(p_res[0], 0), num_filt))
                 if p_res[0].size > 0:
+                    print(p_res[0].size )
                     point_cloud[0:3, :, -1] = p_res
             point_cloud = point_cloud.reshape((4, -1))
             transform = T_w0_w.dot(dataset.poses[frame_id].dot(T_cam0_cam2))
@@ -338,7 +343,9 @@ if __name__ == '__main__':
             np.save(pcl_path, point_cloud, allow_pickle=False)
             bbox_path = os.path.join(out_path, "bbox_f{}_i{}".format(data['image_id'], i))
             np.save(bbox_path, bbox, allow_pickle=False)
-            results.append([frame_id, i, class_ids[i], pcl_path, bbox_path, transform[:3, 3]])
+            transform_path = os.path.join(out_path, "pose_f{}_i{}".format(data['image_id'], i))
+            np.save(transform_path, transform, allow_pickle=False)
+            results.append([frame_id, i, class_ids[i], pcl_path, bbox_path, transform[:3, 3], transform_path])
 
     if MERGE_BBOXES:
 
@@ -384,7 +391,7 @@ if __name__ == '__main__':
     with open(os.path.join(out_path, "_results.txt"), 'w') as f:
         for result in results:
             f.write(str(result[0]) + " " + str(result[1]) + " " + str(result[2]) + " " + str(result[3]) + " " +
-                    str(result[4]) + " " + str(result[5][0]) + " " + str(result[5][1]) + " " + str(result[5][2]) + "\n")
+                    str(result[4]) + " " + str(result[5][0]) + " " + str(result[5][1]) + " " + str(result[5][2]) + " " + str(result[6]) + "\n")
 
     print("Finished.")
 
