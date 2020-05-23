@@ -355,7 +355,7 @@ def load_data(path, n):
     #ToDo change path:
     # mergedbboxes = np.load("results/mergedbbox.npy")
     mergedbboxes = None
-    class_id = None # np.load("results/classes_list.npy")
+    class_id = None  # np.load("results/classes_list.npy")
     return poses, pcls, bbox, labels, frame_ids, mergedbboxes, class_id
 
 
@@ -368,17 +368,37 @@ def load_lines(path):
     return data_lines
 
 
-
-
 if __name__ == '__main__':
     path = "results/_results.txt"
 
     poses, pcls, bbox, labels, frame_ids, mergedbboxes, class_id = load_data(path, 500)
 
-    #pcl_test = [np.load("pcl_test.npy")]
-    #labels_test = np.array([0])
-    #frame_ids = np.array([0])
-    particles = np.load("/home/felix/vision_ws/Semantic-Features/particle_poses.npy")
+    particles = np.load("particle_poses.npy")
+
+    #####################################################################
+    # PCL projection example:
+    import pykitti
+    basedir = 'content/kitti_dataset/dataset'
+    sequence = '08'
+
+    dataset = pykitti.odometry(basedir, sequence)
+
+    pointclouds = [pcl[:3, :, 0].T for pcl in pcls]
+
+    T_w0_w = np.array([[0., 0., 1., 0.],
+                       [-1., 0., 0., 0.],
+                       [0., -1., 0., 0.],
+                       [0., 0., 0., 1.]])
+    pose = T_w0_w.dot(dataset.poses[0])
+
+    P_cam2 = dataset.calib.P_rect_20
+    from tools.utils import pcls_to_image_labels
+    depth_img, label_img = pcls_to_image_labels(pointclouds, labels, pose, P_cam2, (370, 1226))
+
+    print(np.unique(np.nan_to_num(label_img)))
+    plt.imshow(label_img)
+    plt.show()
+    #####################################################################
 
     print("Number of landmarks is: {}".format(labels.shape[0]))
     renderer = LandmarkRenderer(poses, None, pcls, bbox, labels, frame_ids, get_colors(), mergedbboxes, class_id,
