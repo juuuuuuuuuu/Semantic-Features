@@ -375,6 +375,8 @@ if __name__ == '__main__':
 
     particles = np.load("particle_poses.npy")
 
+    #####################################################################
+    # PCL projection example:
     import pykitti
     basedir = 'content/kitti_dataset/dataset'
     sequence = '08'
@@ -396,7 +398,7 @@ if __name__ == '__main__':
     print(np.unique(np.nan_to_num(label_img)))
     plt.imshow(label_img)
     plt.show()
-    exit()
+    #####################################################################
 
     print("Number of landmarks is: {}".format(labels.shape[0]))
     renderer = LandmarkRenderer(poses, None, pcls, bbox, labels, frame_ids, get_colors(), mergedbboxes, class_id,
