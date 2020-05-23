@@ -6,7 +6,11 @@ from scipy.linalg import expm
 import pykitti
 import scipy.spatial.transform.rotation as r
 
-
+# World is twisted so we need to transform.
+T_w0_w = np.array([[0., 0., 1., 0.],
+                   [-1., 0., 0., 0.],
+                   [0., -1., 0., 0.],
+                   [0., 0., 0., 1.]])
 
 dt = 1/20
 max_vis = 30.0
@@ -60,19 +64,15 @@ def load_frame(path):
     data = np.array(results.values)
     U = []
     D = []
-    poses = []
-    image_id = data[0][0]
+    image_ids = []
     for row in data:
         landm_path = row[3]
         pcl = np.load(landm_path + '.npy')
         U.append(pcl)
         D.append(row[2])
-        if row[0] != image_id:
-            pose_path = row[8]
-            pose = np.load(pose_path + '.npy')
-            poses.append(pose)
-            image_id = row[0]
-    return U, D, poses
+        image_ids.append(row[0])
+    image_ids = np.unique(image_ids)
+    return U, D, image_ids
 
 
 def get_instances(path, image_id):
@@ -87,8 +87,8 @@ def motion_update(w_t, v_t):
     q_v = np.random.normal(0.0, std_v, size=2)
     q_v = np.array([q_v[0], q_v[1], 0.0])
     twist = np.zeros((4, 4))
-    twist[0:3, 0:3] = expm(w_x(w_t*dt + q_w))
-    twist[0:3, 3] = dt*v_t + q_v
+    twist[0:3, 0:3] = expm(w_x(w_t + q_w))
+    twist[0:3, 3] = v_t + q_v
     twist[3, 3] = 1.0
     return twist
 
@@ -133,9 +133,12 @@ if __name__ == '__main__':
     Kmat = dataset.calib.P_rect_20[0:3, 0:3]
     #Kmat = np.concatenate((Kmat, np.array([0, 0, 0, 1]).reshape(4,1)), axis=1)
     print(Kmat)
-    U, D, poses = load_frame(results_path)
+    U, D, image_ids = load_frame(results_path)
     # initialize particles and weights
     N = 100
+
+    poses = [T_w0_w.dot(dataset.poses[image_id]) for image_id in image_ids]
+
     particles = np.zeros((N, 4, 4))
     weights = np.ones(N)*1/N
     for i in range(N):
@@ -151,8 +154,6 @@ if __name__ == '__main__':
 
     # measure w_t and v_t
     v, w = get_gt_velocities(poses)
-    w_t = np.random.normal(0.0, std_w, size=3)
-    v_t = np.random.normal(0.0, std_v, size=3)
     particle_poses_all = []
     for w_t, v_t in zip(w, v):
         particle_poses = np.zeros((N, 3))
@@ -183,7 +184,7 @@ if __name__ == '__main__':
             coord_mean = u[0:3, :, 0].mean(axis=1)
             #print(coord_mean.shape)
             dist = np.linalg.norm(coord_mean - particles[i][0:3, 3])
-            if dist > max_vis:
+            if dist < max_vis:
                 map.append(u[0:3, :, 0])
                 feat.append(D[j])
 
