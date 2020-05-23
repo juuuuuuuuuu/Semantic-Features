@@ -255,7 +255,7 @@ if __name__ == '__main__':
 
     for n, data in enumerate(all_data_sort):
         # Only processing half of the images
-        if n > len(all_data_sort)*0.01:
+        if n > len(all_data_sort)*0.5:
             print("Stop at frame " + data['image_id'] + '.')
             break
 
