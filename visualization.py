@@ -76,6 +76,8 @@ class LandmarkRenderer:
                 vis.add_geometry(geometry)
 
         vis.add_geometry(self.ground_grid)
+        
+        vis.add_geometry(render_particles(self.particles[self.particle_pointer, :, :]))
 
         vis.run()
         vis.destroy_window()
@@ -124,7 +126,6 @@ class LandmarkRenderer:
             for geometries in self.landmark_render_objects:
                 for geometry in geometries[self.method::self.num_methods][0]:
                     vis.add_geometry(geometry)
-
 
         vis.add_geometry(self.ground_grid)
 
@@ -232,6 +233,7 @@ def render_mbboxes_func(label_colors, mbboxes, class_id):
 
 def render_particles(particles):
     pcl = o3d.geometry.PointCloud(points=o3d.utility.Vector3dVector(particles))
+    pcl.colors = o3d.utility.Vector3dVector([[1., 0., 0.] for j in range(particles.shape[0])])
     return pcl
 
 
