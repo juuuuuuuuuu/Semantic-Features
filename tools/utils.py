@@ -1,4 +1,5 @@
 import numpy as np
+import cv2
 
 
 # TODO: Implement functions here:
@@ -72,6 +73,34 @@ def camera_frame_to_world_transform(heading, yaw_ext, pitch_ext, roll_ext, x_ext
     # Return camera space to vehicle transform.
     return T_w_v.dot(T_v_c.dot(np.linalg.inv(C_c)))
 
+
+def pcls_to_image_labels_with_occlusion(pointclouds, labels, pose, intrinsic_matrix, img_shape, point_size, max_dist):
+    # Get the depths of the point cloud means in camera space.
+    transform = np.linalg.inv(pose)
+    pcl_mean_depths = np.array([transform.dot(np.hstack([np.mean(pcl, axis=0), 1.]).T).T[2] for pcl in pointclouds
+                                if pcl.shape[0] > 0])
+    ascending_depth = np.argsort(pcl_mean_depths)
+    print("Number of landmarks in image: {}".format(len(ascending_depth)))
+
+    final_image = np.zeros(img_shape)
+    # Mask is 1 when occupied, 0 when free.
+    final_mask = np.zeros(img_shape, dtype=bool)
+    for idx in ascending_depth:
+        mean_depth = pcl_mean_depths[idx]
+
+        if mean_depth > max_dist:
+            continue
+
+        pcl = pointclouds[idx]
+        depth_img, label_image = pcls_to_image_labels([pcl], [labels[idx]], pose, intrinsic_matrix, img_shape)
+        final_image = np.where(final_mask, final_image, label_image)
+        mask = np.where(np.isnan(label_image), 0., 1.)
+        point_size_in_image = int(np.ceil(intrinsic_matrix[0, 0] * point_size / mean_depth))
+        kernel = np.ones((point_size_in_image, point_size_in_image))
+        mask = cv2.dilate(mask, kernel)
+        final_mask = np.logical_or(mask, final_mask)
+
+    return final_image, final_mask
 
 def pcls_to_image_labels(pointclouds, labels, pose, intrinsic_matrix, img_shape):
     """ Projects pointclouds with labels to camera image.

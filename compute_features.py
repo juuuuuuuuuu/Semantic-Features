@@ -274,7 +274,22 @@ if __name__ == '__main__':
         velo = dataset.get_velo(frame_id)
         depth_image = utils.pcl_to_image(velo[:, :3], dataset.calib.T_cam2_velo,
                                          P_cam2, (mask_image.shape[0], mask_image.shape[1]))
-        depth_image[:100, :] = depth_image_stereo[:100, :]
+
+        # Calculate the density of lidar points.
+        kernel = np.ones((7, 7))
+        mask = np.where(np.isnan(depth_image), 0., 1.)
+        count_before = np.sum(mask)
+        mask = cv2.dilate(mask, kernel)
+        count_after = np.sum(mask)
+        lidar_density = count_before / count_after
+        # print("Lidar density: {}".format(lidar_density))
+
+        stereo_sample = np.where(np.random.sample(depth_image_stereo.shape) < lidar_density, depth_image_stereo, np.nan)
+        depth_image[np.logical_not(mask)] = stereo_sample[np.logical_not(mask)]
+
+        # plt.imshow(np.where(np.isnan(depth_image), 0., depth_image))
+        # plt.show()
+        # exit()
         
         # Create structuring element for erosion
         kernel = np.ones((1, 1), np.uint8) 

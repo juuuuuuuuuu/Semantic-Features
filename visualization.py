@@ -76,7 +76,7 @@ class LandmarkRenderer:
                 vis.add_geometry(geometry)
 
         vis.add_geometry(self.ground_grid)
-        
+
         vis.add_geometry(render_particles(self.particles[self.particle_pointer, :, :]))
 
         vis.run()
@@ -394,11 +394,17 @@ if __name__ == '__main__':
     pose = T_w0_w.dot(dataset.poses[0])
 
     P_cam2 = dataset.calib.P_rect_20
+    from tools.utils import pcls_to_image_labels_with_occlusion
     from tools.utils import pcls_to_image_labels
-    depth_img, label_img = pcls_to_image_labels(pointclouds, labels, pose, P_cam2, (370, 1226))
+    label_img, mask = pcls_to_image_labels_with_occlusion(pointclouds, labels, pose, P_cam2, (370, 1226), 0.2, 30.)
+    _, labels_without_occlusion = pcls_to_image_labels(pointclouds, labels, pose, P_cam2, (370, 1226))
 
     print(np.unique(np.nan_to_num(label_img)))
-    plt.imshow(label_img)
+    plt.imshow(np.where(np.isnan(label_img), 0., label_img * 10.))
+    plt.show()
+    plt.imshow(mask)
+    plt.show()
+    plt.imshow(np.where(np.isnan(labels_without_occlusion), 0., labels_without_occlusion * 10.))
     plt.show()
     #####################################################################
 
