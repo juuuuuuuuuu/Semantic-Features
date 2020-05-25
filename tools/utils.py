@@ -88,7 +88,7 @@ def pcls_to_image_labels_with_occlusion(pointclouds, labels, pose, intrinsic_mat
     for idx in ascending_depth:
         mean_depth = pcl_mean_depths[idx]
 
-        if mean_depth > max_dist:
+        if 0. > mean_depth > max_dist:
             continue
 
         pcl = pointclouds[idx]

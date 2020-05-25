@@ -13,7 +13,7 @@ from tools import utils
 QUANTILE = False
 FIT_LINE = False
 FIT_BOX = True
-MERGE_BBOXES = True
+MERGE_BBOXES = False
 
 # Choose number of filter for mergedbbox
 mbboxnr = 0
@@ -253,6 +253,9 @@ if __name__ == '__main__':
         transforms = []
         classes_list = []
 
+    tot_pixels = 0
+    pixel_per_class = np.zeros((17,))
+
     for n, data in enumerate(all_data_sort):
         # Only processing half of the images
         if n > len(all_data_sort)*0.5:
@@ -292,12 +295,16 @@ if __name__ == '__main__':
         # exit()
         
         # Create structuring element for erosion
-        kernel = np.ones((1, 1), np.uint8) 
+        kernel = np.ones((1, 1), np.uint8)
+
+        tot_pixels += mask_image.shape[0] * mask_image.shape[1]
 
         class_ids = data['classes']
         for i in range(len(class_ids)):
-            mask_i = cv2.erode(np.array(mask_image == i + 1, dtype=np.uint8), kernel)
+            instance_mask = np.array(mask_image == i + 1, dtype=np.uint8)
+            mask_i = cv2.erode(instance_mask, kernel)
             mask = np.where(np.logical_and(mask_i, np.logical_not(np.isnan(depth_image))))
+            pixel_per_class[class_ids[i]] += np.sum(instance_mask)
 
             u = []
             v = []
@@ -358,6 +365,14 @@ if __name__ == '__main__':
             bbox_path = os.path.join(out_path, "bbox_f{}_i{}".format(data['image_id'], i))
             np.save(bbox_path, bbox, allow_pickle=False)
             results.append([frame_id, i, class_ids[i], pcl_path, bbox_path, transform[:3, 3]])
+
+    pixel_per_class[0] = 1. - np.sum(pixel_per_class)
+    print("Probabilities:")
+    for i in range(pixel_per_class.shape[0]):
+        print("Class {}:".format(i))
+        print("Probability: {}".format(pixel_per_class[i] / tot_pixels))
+
+    np.save("detection_probabilites")
 
     if MERGE_BBOXES:
 
