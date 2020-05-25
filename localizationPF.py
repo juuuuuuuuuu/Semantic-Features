@@ -184,6 +184,8 @@ class Particle_Filter():
             im_prob = 1
 
             # f, ax = plt.subplots(2, 1, figsize=(15, 5))
+            # figure_for_jo = label_image.copy()
+            # figure_for_jo[np.isnan()]
             # ax[0].imshow(np.where(np.isnan(label_image), 0., label_image * 10.))
             # ax[1].imshow(instance_im * 10.)
             # plt.show()
@@ -194,10 +196,10 @@ class Particle_Filter():
             pred_image = instance_im[proj_mask]
             pred_image = np.array(list(map(instances_to_classes_map, pred_image)))
             detect_prob = np.array(list(map(cnn_pmf_map, zip(map_classes, pred_image)))) * 0.9 + 0.1
-            cumm = np.cumprod(detect_prob)
+            cumm = np.cumsum(detect_prob)
             if len(cumm) > 0:
                 im_prob = cumm[-1]
-                im_prob = im_prob / np.cumprod(np.array(list(map(class_marginal_map, pred_image))) * 0.1)[-1]
+                im_prob = im_prob / np.cumsum(np.array(list(map(class_marginal_map, pred_image))) * 0.1)[-1]
             else:
                 im_prob = 1e-100
             # for u in range(1226):
