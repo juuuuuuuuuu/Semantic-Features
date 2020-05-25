@@ -79,6 +79,7 @@ class Particle_Filter():
         self.sequence = '08'
         self.CNN_PMF_PATH = os.path.join(self.ROOT_DIR, 'results/PMFs')
         self.cnn_pmf = np.load(self.CNN_PMF_PATH + '.npy') # one row is the pmf of the cnn detecting the class, when the gt corresponding to the row is present
+        self.
         self.dataset = pykitti.odometry(self.basedir, self.sequence)
         self.Kmat = self.dataset.calib.P_rect_20
         self.T_w0_w = np.array([[0., 0., 1., 0.],
