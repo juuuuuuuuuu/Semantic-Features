@@ -7,6 +7,7 @@ from scipy.linalg import expm
 import pykitti
 import scipy.spatial.transform.rotation as r
 from tools import utils
+import velocity_measurement
 import json
 from operator import itemgetter
 
@@ -47,8 +48,8 @@ def get_gt_velocities(poses):
     linear_velocities = []
     angular_velocities = []
     for i in range(len(poses) - 1):
-        linear_v = poses[i][:3, :3].T.dot(poses[i + 1][:3, 3] - poses[i][:3, 3])
-        #linear_v = (poses[i + 1][:3, 3] - poses[i][:3, 3])
+        # linear_v = poses[i][:3, :3].T.dot(poses[i + 1][:3, 3] - poses[i][:3, 3])
+        linear_v = (poses[i + 1][:3, 3] - poses[i][:3, 3])
         linear_velocities.append(linear_v)
         #rotational_v = poses[i][:3, :3].T.dot(get_delta_rot(poses[i + 1][:3, :3], poses[i][:3, :3]))
         rotational_v = (get_delta_rot(poses[i + 1][:3, :3], poses[i][:3, :3]))
@@ -224,7 +225,8 @@ class Particle_Filter():
         # loop trough all measurements
         loc_pose_ind = localization_indices + [localization_indices[-1]+1]
         localization_poses = [self.T_w0_w.dot(self.dataset.poses[image_id].dot(self.T_cam0_cam2)) for image_id in loc_pose_ind]
-        v, w = get_gt_velocities(localization_poses)
+        # v, w = get_gt_velocities(localization_poses)
+        v, w = velocity_measurement.get_gt_velocities_vehicle(localization_poses)
         for time, image_id in enumerate(localization_indices):
             # pose = T_w0_w.dot(dataset.poses[image_id].dot(T_cam0_cam2))
 
@@ -233,7 +235,13 @@ class Particle_Filter():
             # Motion update
             particle_poses = np.zeros((N, 3))
             for i in range(N):
-                particles[i] = self.motion_update(w_t, v_t).dot(particles[i])
+                # Get noise vectors.
+                q_w = np.random.normal(0.0, self.std_w, size=1)
+                q_w = np.array([0.0, 0.0, q_w])
+                q_v = np.random.normal(0.0, self.std_v, size=2)
+                q_v = np.array([q_v[0], q_v[1], 0.0])
+                # particles[i] = self.motion_update(w_t, v_t).dot(particles[i])
+                particles[i] = velocity_measurement.process_particle(particles[i], v_t, w_t, q_v, q_w)
                 particle_poses[i] = particles[i][0:3, 3]
             particle_poses_all.append(particle_poses)
 
@@ -264,8 +272,8 @@ class Particle_Filter():
         print(particles)
 if __name__ == '__main__':
     filter = Particle_Filter(10, std_w=0.1, std_v=1)
-    mapping_indices = list(range(3))
-    localization_indices = list(range(3))
+    mapping_indices = list(range(10))
+    localization_indices = list(range(10))
     filter.run(mapping_indices, localization_indices)
 
 
