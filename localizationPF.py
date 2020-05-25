@@ -48,7 +48,7 @@ def get_gt_velocities(poses):
     linear_velocities = []
     angular_velocities = []
     for i in range(len(poses) - 1):
-        # linear_v = poses[i][:3, :3].T.dot(poses[i + 1][:3, 3] - poses[i][:3, 3])
+        #linear_v = poses[i][:3, :3].T.dot(poses[i + 1][:3, 3] - poses[i][:3, 3])
         linear_v = (poses[i + 1][:3, 3] - poses[i][:3, 3])
         linear_velocities.append(linear_v)
         #rotational_v = poses[i][:3, :3].T.dot(get_delta_rot(poses[i + 1][:3, :3], poses[i][:3, :3]))
@@ -158,7 +158,10 @@ class Particle_Filter():
         """ takes an image_id as measurement, as well as the particles, and 3D-map (U, D)
         """
         # select local map to project into image plane
-        instances_to_classes = self.all_data_sort[image_id]['classes']
+        instances_to_classes = [0] + self.all_data_sort[image_id]['classes']
+        instances_to_classes_map = lambda x: instances_to_classes[int(x)]
+        cnn_pmf_map = lambda x: self.cnn_pmf[x]
+        class_marginal_map = lambda x: self.class_marginal[x]
         image_id = "L{:06d}.png".format(image_id)
 
         print(image_id)
@@ -166,7 +169,7 @@ class Particle_Filter():
         print(os.path.join(self.instances_path, '{}'.format(image_id)))
         weights = np.zeros(self.N)
         for i in range(self.N):
-            map = []
+            local_map = []
             feat = []
             for j, u in enumerate(U):
                 if u[0:3, :, 0].size > 0:
@@ -174,25 +177,38 @@ class Particle_Filter():
                     # print(coord_mean.shape)
                     dist = np.linalg.norm(coord_mean - particles[i][0:3, 3])
                     if dist < self.max_vis:
-                        map.append(u[0:3, :, 0].T)
+                        local_map.append(u[0:3, :, 0].T)
                         feat.append(D[j])
 
-            depth_image, label_image = utils.pcls_to_image_labels(map, feat, particles[i], self.Kmat, (370, 1226))
+            depth_image, label_image = utils.pcls_to_image_labels(local_map, feat, particles[i], self.Kmat, (370, 1226))
             im_prob = 1
             #plt.imshow(np.where(np.isnan(label_image), 0., label_image * 10.))
             #plt.show()
-            for u in range(1226):
-                for v in range(370):
-                    if not np.isnan(label_image[v, u]):
-                        #print(self.cnn_pmf[int(label_image[v, u]), instance_im[v, u]])
-                        if instance_im[v, u]:
-                            pred_label = instances_to_classes[instance_im[v, u]]
-                        else:
-                            pred_label = 0
-                            continue
-                        print("class marginal: {}, label: {}".format(self.class_marginal[pred_label], pred_label))
-                        im_prob = im_prob * (self.cnn_pmf[int(label_image[v, u]), pred_label] * 0.9 + im_prob * 0.1)/self.class_marginal[pred_label]*0.005
-                        print(im_prob)
+
+            #get a boolean mask of all pixels that are matched with the map
+            proj_mask = np.where(~np.isnan(label_image), True, False)
+            proj_world = label_image[proj_mask]
+            pred_image = instance_im[proj_mask]
+            map_classes = np.array(list(map(instances_to_classes_map, proj_world)))
+            #np.array([map_classes, pred_image])
+            print(map_classes)
+            print(pred_image)
+            detect_prob = np.array(list(map(cnn_pmf_map, zip(map_classes, pred_image)))) * 0.9 + 0.1
+            print(detect_prob.shape)
+            im_prob = np.cumsum(detect_prob)[-1]
+            im_prob = im_prob / np.cumsum(np.array(list(map(class_marginal_map, pred_image))) * 0.1)[-1]
+            print("im_prob: {}".format(im_prob))
+            # for u in range(1226):
+            #     for v in range(370):
+            #         if not np.isnan(label_image[v, u]):
+            #             #print(self.cnn_pmf[int(label_image[v, u]), instance_im[v, u]])
+            #             if instance_im[v, u]:
+            #                 pred_label = instances_to_classes[instance_im[v, u]]
+            #             else:
+            #                 pred_label = 0
+            #             print("class marginal: {}, label: {}".format(self.class_marginal[pred_label], pred_label))
+            #             im_prob = im_prob * (self.cnn_pmf[int(label_image[v, u]), pred_label] * 0.9 + im_prob * 0.1)/self.class_marginal[pred_label]*0.1
+            #             print(im_prob)
 
             weights[i] = im_prob
         return weights
@@ -265,13 +281,16 @@ class Particle_Filter():
             print(weights.sum())
             # resample
             print("weights: {}".format(weights))
+            particle_ind = list(range(N))
+            particle_ind = np.random.choice(particle_ind, p=weights)
+            new_particles = particles
             for i in range(N):
-                particles[i] = weighted_choice(particles, weights)
+                new_particles[i] = particles[i]
 
         np.save(measurement_model_path, particle_poses_all, allow_pickle=False)
         print(particles)
 if __name__ == '__main__':
-    filter = Particle_Filter(10, std_w=0.1, std_v=1)
+    filter = Particle_Filter(10, std_w=0.1, std_v=0.1)
     mapping_indices = list(range(10))
     localization_indices = list(range(10))
     filter.run(mapping_indices, localization_indices)
