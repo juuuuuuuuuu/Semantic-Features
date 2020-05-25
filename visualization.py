@@ -373,7 +373,7 @@ def load_lines(path):
 if __name__ == '__main__':
     path = "results/_results.txt"
 
-    poses, pcls, bbox, labels, frame_ids, mergedbboxes, class_id = load_data(path, 500)
+    poses, pcls, bbox, labels, frame_ids, mergedbboxes, class_id = load_data(path, 1300)
 
     particles = np.load("particle_poses.npy")
 
@@ -394,12 +394,12 @@ if __name__ == '__main__':
     pose = T_w0_w.dot(dataset.poses[0])
 
     P_cam2 = dataset.calib.P_rect_20
-    from tools.utils import pcls_to_image_labels_with_occlusion
-    from tools.utils import pcls_to_image_labels
-    label_img, mask = pcls_to_image_labels_with_occlusion(pointclouds, labels, pose, P_cam2, (370, 1226), 0.2, 30.)
-    _, labels_without_occlusion = pcls_to_image_labels(pointclouds, labels, pose, P_cam2, (370, 1226))
+    # from tools.utils import pcls_to_image_labels_with_occlusion
+    # from tools.utils import pcls_to_image_labels
+    # label_img, mask = pcls_to_image_labels_with_occlusion(pointclouds, labels, pose, P_cam2, (370, 1226), 0.2, 30.)
+    # _, labels_without_occlusion = pcls_to_image_labels(pointclouds, labels, pose, P_cam2, (370, 1226))
 
-    print(np.unique(np.nan_to_num(label_img)))
+    # print(np.unique(np.nan_to_num(label_img)))
     # plt.imshow(np.where(np.isnan(label_img), 0., label_img * 10.))
     # plt.show()
     # plt.imshow(mask)

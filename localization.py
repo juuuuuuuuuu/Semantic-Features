@@ -835,7 +835,8 @@ def fix_rotation(r):
 
 def get_random_rot():
     a = np.random.random(3) * np.array([np.pi * 2, np.pi * 2, np.pi * 2])
-    print(a)
+    # print(a)#
+    a = np.zeros((3, ))
 
     rot_z = np.array([[np.cos(a[0]), -np.sin(a[0]), 0], [np.sin(a[0]), np.cos(a[0]), 0], [0., 0., 1.]])
     rot_y = np.array([[np.cos(a[1]), 0, -np.sin(a[1])], [0., 1., 0.], [np.sin(a[1]), 0, np.cos(a[1])]])
@@ -895,11 +896,11 @@ if __name__ == '__main__':
     FRAME_COUNT = 200
     MIN_INLIER = 5
 
-    #frame_list = list(range(10, 253)) + list(range(1580, 1828))
+    #frame_list = list(range(10, 253)) + list(range(1580, 1828)) 1394
     frames_for_localization = list(range(1372, 1513))
     frames_for_mapping = list(range(693, 804))
     frame_list = frames_for_localization + frames_for_mapping
-    poses, f_lms, f_labels, empty_frames, ind_map = load_frame("/home/julius/Desktop/3DVision/99_repo/Semantic-Features/results/_results.txt", frame_list)
+    poses, f_lms, f_labels, empty_frames, ind_map = load_frame("results/_results.txt", frame_list)
 
     # Use every third frame for localization, all other frames for mapping
 

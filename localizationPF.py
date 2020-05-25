@@ -194,10 +194,10 @@ class Particle_Filter():
             pred_image = instance_im[proj_mask]
             pred_image = np.array(list(map(instances_to_classes_map, pred_image)))
             detect_prob = np.array(list(map(cnn_pmf_map, zip(map_classes, pred_image)))) * 0.9 + 0.1
-            cumm = np.cumsum(detect_prob)
+            cumm = np.cumprod(detect_prob)
             if len(cumm) > 0:
                 im_prob = cumm[-1]
-                im_prob = im_prob / np.cumsum(np.array(list(map(class_marginal_map, pred_image))) * 0.1)[-1]
+                im_prob = im_prob / np.cumprod(np.array(list(map(class_marginal_map, pred_image))) * 0.1)[-1]
             else:
                 im_prob = 1e-100
             # for u in range(1226):
@@ -228,19 +228,21 @@ class Particle_Filter():
 
         particles = np.zeros((N, 4, 4))
         weights = np.ones(N) * 1 / N
-        for i in range(N):
+        # for i in range(N):
             # th = np.pi * np.random.uniform(0, 2)
             # particles[i,0:3, 0:3] = R_init(th)
             # particles[i, 3,:] = [0.0, 0.0, 0.0, 1]
             # randpose = np.random.randint(0,len(poses))
             # particles[i, 0:3, 3] = poses[randpose][0:3,3]
-            particles[i] = mapping_poses[0]
+            # particles[i] = mapping_poses[0]
 
         particle_poses_all = []
         measurement_model_path = os.path.join(self.ROOT_DIR, "particle_poses")
         # loop trough all measurements
         loc_pose_ind = localization_indices + [localization_indices[-1]+1]
         localization_poses = [self.T_w0_w.dot(self.dataset.poses[image_id].dot(self.T_cam0_cam2)) for image_id in loc_pose_ind]
+        for i in range(N):
+            particles[i] = localization_poses[0]
         # v, w = get_gt_velocities(localization_poses)
         v, w = velocity_measurement.get_gt_velocities_vehicle(localization_poses)
         for time, image_id in enumerate(localization_indices):
@@ -292,8 +294,7 @@ if __name__ == '__main__':
     # 70 to 250
     mapping_indices = list(range(70, 250))
     # 1580 to 1850
-    localization_indices = list(range(1700, 1850))
-    localization_indices.reverse()
+    localization_indices = list(range(1580, 1850))
     filter.run(mapping_indices, localization_indices)
 
 
