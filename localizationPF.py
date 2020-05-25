@@ -159,14 +159,14 @@ class Particle_Filter():
         """
         # select local map to project into image plane
         instances_to_classes = [0] + self.all_data_sort[image_id]['classes']
-        instances_to_classes_map = lambda x: instances_to_classes[int(x)]
+        def instances_to_classes_map(x):
+            return instances_to_classes[int(x)]
         cnn_pmf_map = lambda x: self.cnn_pmf[x]
         class_marginal_map = lambda x: self.class_marginal[x]
         image_id = "L{:06d}.png".format(image_id)
 
         print(image_id)
         instance_im = cv2.imread(os.path.join(self.instances_path, '{}'.format(image_id)), cv2.IMREAD_GRAYSCALE)
-        print(os.path.join(self.instances_path, '{}'.format(image_id)))
         weights = np.zeros(self.N)
         for i in range(self.N):
             local_map = []
@@ -189,15 +189,10 @@ class Particle_Filter():
             proj_mask = np.where(~np.isnan(label_image), True, False)
             proj_world = label_image[proj_mask]
             pred_image = instance_im[proj_mask]
-            map_classes = np.array(list(map(instances_to_classes_map, proj_world)))
-            #np.array([map_classes, pred_image])
-            print(map_classes)
-            print(pred_image)
+            map_classes = np.array(list(map(instances_to_classes_map, pred_image)))
             detect_prob = np.array(list(map(cnn_pmf_map, zip(map_classes, pred_image)))) * 0.9 + 0.1
-            print(detect_prob.shape)
             im_prob = np.cumsum(detect_prob)[-1]
             im_prob = im_prob / np.cumsum(np.array(list(map(class_marginal_map, pred_image))) * 0.1)[-1]
-            print("im_prob: {}".format(im_prob))
             # for u in range(1226):
             #     for v in range(370):
             #         if not np.isnan(label_image[v, u]):
@@ -216,7 +211,6 @@ class Particle_Filter():
     def run(self, mapping_indices, localization_indices):
 
         # Kmat = np.concatenate((Kmat, np.array([0, 0, 0, 1]).reshape(4,1)), axis=1)
-        print(self.Kmat)
 
         U, D, image_ids = self.load_frame(mapping_indices)
 
@@ -234,7 +228,6 @@ class Particle_Filter():
             # randpose = np.random.randint(0,len(poses))
             # particles[i, 0:3, 3] = poses[randpose][0:3,3]
             particles[i] = mapping_poses[0]
-        print(particles[0])
 
         particle_poses_all = []
         measurement_model_path = os.path.join(self.ROOT_DIR, "particle_poses")
@@ -273,14 +266,11 @@ class Particle_Filter():
                 particles[i][0:3, 3] = proj
 
             # calculate weights with measurement update
-            print(image_id)
             weights = self.measurement_update(image_id, particles, U, D)
             # normalize
             sum_weights = weights.sum()
             weights = weights/sum_weights
-            print(weights.sum())
             # resample
-            print("weights: {}".format(weights))
             particle_ind = list(range(N))
             particle_ind = np.random.choice(particle_ind, p=weights)
             new_particles = particles
@@ -288,11 +278,10 @@ class Particle_Filter():
                 new_particles[i] = particles[i]
 
         np.save(measurement_model_path, particle_poses_all, allow_pickle=False)
-        print(particles)
 if __name__ == '__main__':
-    filter = Particle_Filter(10, std_w=0.1, std_v=0.1)
-    mapping_indices = list(range(10))
-    localization_indices = list(range(10))
+    filter = Particle_Filter(100, std_w=0.02, std_v=0.2)
+    mapping_indices = list(range(200))
+    localization_indices = list(range(200))
     filter.run(mapping_indices, localization_indices)
 
 
