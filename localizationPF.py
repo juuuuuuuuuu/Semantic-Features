@@ -237,9 +237,9 @@ class Particle_Filter():
             for i in range(N):
                 # Get noise vectors.
                 q_w = np.random.normal(0.0, self.std_w, size=1)
-                q_w = np.array([0.0, 0.0, q_w])
+                q_w = np.array([0.0, q_w, 0.0])
                 q_v = np.random.normal(0.0, self.std_v, size=2)
-                q_v = np.array([q_v[0], q_v[1], 0.0])
+                q_v = np.array([q_v[0], 0.0, q_v[1]])
                 # particles[i] = self.motion_update(w_t, v_t).dot(particles[i])
                 particles[i] = velocity_measurement.process_particle(particles[i], v_t, w_t, q_v, q_w)
                 particle_poses[i] = particles[i][0:3, 3]
