@@ -151,7 +151,7 @@ def measurement_update(image_id, particles, U, D):
     # select local map to project into image plane
     instances_path = os.path.join(ROOT_DIR, "content/kitti_dataset/dataset/sequences/08/instances_2")
     image_ids = os.listdir(os.path.join(instances_path))
-    instance_im = cv2.imread(os.path.join(instances_path, '{}'.format(image_ids[image_id])))
+    instance_im = cv2.imread(os.path.join(instances_path, '{}'.format(image_ids[image_id])), cv2.IMREAD_GRAYSCALE)
     print(os.path.join(instances_path, '{}'.format(image_ids[image_id])))
     weights = np.zeros(particles.shape)
     for i in range(particles.size):
@@ -170,11 +170,8 @@ def measurement_update(image_id, particles, U, D):
         im_prob = 1
         for u in range(1226):
             for v in range(370):
-                if label_image[u, v]:
-                    print(cnn_pmf)
-                    print(label_image)
-                    print(instance_im)
-                    im_prob = im_prob * 0.8 * cnn_pmf[label_image[u, v], instance_im[u, v]]
+                if not np.isnan(label_image[v, u]):
+                    im_prob = im_prob * 0.8 * cnn_pmf[int(label_image[v, u]), instance_im[v, u]]
                     print(im_prob)
         weights[i] = im_prob
     return weights
