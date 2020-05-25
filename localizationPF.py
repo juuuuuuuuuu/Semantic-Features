@@ -7,6 +7,9 @@ from scipy.linalg import expm
 import pykitti
 import scipy.spatial.transform.rotation as r
 from tools import utils
+import json
+from operator import itemgetter
+
 from matplotlib import pyplot as plt
 # World is twisted so we need to transform.
 
@@ -57,12 +60,12 @@ def L2_norm(x, y):
     return ((x - y)**2).sum()**0.5
 
 class Particle_Filter():
-    def __init__(self, N):
+    def __init__(self, N, std_w, std_v):
         self.N = N
         self.dt = 1/20
         self.max_vis = 30.0
-        self.std_w = 0
-        self.std_v = 0
+        self.std_w = std_w
+        self.std_v = std_v
         # fraction of particles to project onto road
         self.alpha = 0.2
         # probability of detection of a point
@@ -89,7 +92,16 @@ class Particle_Filter():
                            [0., -1., 0., 0.],
                            [0., 0., 0., 1.]])
         self.T_cam0_cam2 = np.linalg.inv(self.dataset.calib.T_cam0_velo).dot(self.dataset.calib.T_cam2_velo)
+        with open("results.json") as json_file:
+            all_data = json.load(json_file)
 
+            # sorting alldata for image_id
+        all_data = all_data['results']
+        self.all_data_sort = []
+        for x in sorted(all_data, key=itemgetter('image_id')):
+            self.all_data_sort.append(x)
+
+        print(self.class_marginal)
     def pr_delt(self, x, U):
         dist = L2_norm(x, U)
         if dist > self.max_dist:
@@ -145,7 +157,9 @@ class Particle_Filter():
         """ takes an image_id as measurement, as well as the particles, and 3D-map (U, D)
         """
         # select local map to project into image plane
+        instances_to_classes = self.all_data_sort[image_id]['classes']
         image_id = "L{:06d}.png".format(image_id)
+
         print(image_id)
         instance_im = cv2.imread(os.path.join(self.instances_path, '{}'.format(image_id)), cv2.IMREAD_GRAYSCALE)
         print(os.path.join(self.instances_path, '{}'.format(image_id)))
@@ -164,13 +178,19 @@ class Particle_Filter():
 
             depth_image, label_image = utils.pcls_to_image_labels(map, feat, particles[i], self.Kmat, (370, 1226))
             im_prob = 1
-            plt.imshow(np.where(np.isnan(label_image), 0., label_image * 10.))
-            plt.show()
+            #plt.imshow(np.where(np.isnan(label_image), 0., label_image * 10.))
+            #plt.show()
             for u in range(1226):
                 for v in range(370):
                     if not np.isnan(label_image[v, u]):
                         #print(self.cnn_pmf[int(label_image[v, u]), instance_im[v, u]])
-                        im_prob = im_prob * (self.cnn_pmf[int(label_image[v, u]), instance_im[v, u]] * 0.8 + im_prob * 0.2)/self.class_marginal[instance_im[v, u]]
+                        if instance_im[v, u]:
+                            pred_label = instances_to_classes[instance_im[v, u]]
+                        else:
+                            pred_label = 0
+                            continue
+                        print("class marginal: {}, label: {}".format(self.class_marginal[pred_label], pred_label))
+                        im_prob = im_prob * (self.cnn_pmf[int(label_image[v, u]), pred_label] * 0.9 + im_prob * 0.1)/self.class_marginal[pred_label]*0.005
                         print(im_prob)
 
             weights[i] = im_prob
@@ -202,7 +222,8 @@ class Particle_Filter():
         particle_poses_all = []
         measurement_model_path = os.path.join(self.ROOT_DIR, "particle_poses")
         # loop trough all measurements
-        localization_poses = [self.T_w0_w.dot(self.dataset.poses[image_id].dot(self.T_cam0_cam2)) for image_id in localization_indices]
+        loc_pose_ind = localization_indices + [localization_indices[-1]+1]
+        localization_poses = [self.T_w0_w.dot(self.dataset.poses[image_id].dot(self.T_cam0_cam2)) for image_id in loc_pose_ind]
         v, w = get_gt_velocities(localization_poses)
         for time, image_id in enumerate(localization_indices):
             # pose = T_w0_w.dot(dataset.poses[image_id].dot(T_cam0_cam2))
@@ -240,11 +261,11 @@ class Particle_Filter():
                 particles[i] = weighted_choice(particles, weights)
 
         np.save(measurement_model_path, particle_poses_all, allow_pickle=False)
-        print(particles[0])
+        print(particles)
 if __name__ == '__main__':
-    filter = Particle_Filter(10)
-    mapping_indices = list(range(10))
-    localization_indices = list(range(10))
+    filter = Particle_Filter(10, std_w=0.1, std_v=1)
+    mapping_indices = list(range(3))
+    localization_indices = list(range(3))
     filter.run(mapping_indices, localization_indices)
 
 
