@@ -68,7 +68,7 @@ class Particle_Filter():
         self.std_w = std_w
         self.std_v = std_v
         # fraction of particles to project onto road
-        self.alpha = 0.2
+        self.alpha = 0.0
         # probability of detection of a point
         self.rho = 0.6
         # P0 is a design parameter specifying the probability that a visible map point is occluded
@@ -183,14 +183,23 @@ class Particle_Filter():
             depth_image, label_image = utils.pcls_to_image_labels(local_map, feat, particles[i], self.Kmat, (370, 1226))
             im_prob = 1
 
+            # f, ax = plt.subplots(2, 1, figsize=(15, 5))
+            # ax[0].imshow(np.where(np.isnan(label_image), 0., label_image * 10.))
+            # ax[1].imshow(instance_im * 10.)
+            # plt.show()
+
             #get a boolean mask of all pixels that are matched with the map
             proj_mask = np.where(~np.isnan(label_image), True, False)
             map_classes = list(map(int, label_image[proj_mask]))
             pred_image = instance_im[proj_mask]
             pred_image = np.array(list(map(instances_to_classes_map, pred_image)))
             detect_prob = np.array(list(map(cnn_pmf_map, zip(map_classes, pred_image)))) * 0.9 + 0.1
-            im_prob = np.cumsum(detect_prob)[-1]
-            im_prob = im_prob / np.cumsum(np.array(list(map(class_marginal_map, pred_image))) * 0.1)[-1]
+            cumm = np.cumsum(detect_prob)
+            if len(cumm) > 0:
+                im_prob = cumm[-1]
+                im_prob = im_prob / np.cumsum(np.array(list(map(class_marginal_map, pred_image))) * 0.1)[-1]
+            else:
+                im_prob = 1e-100
             # for u in range(1226):
             #     for v in range(370):
             #         if not np.isnan(label_image[v, u]):
@@ -250,7 +259,6 @@ class Particle_Filter():
                 # particles[i] = self.motion_update(w_t, v_t).dot(particles[i])
                 particles[i] = velocity_measurement.process_particle(particles[i], v_t, w_t, q_v, q_w)
                 particle_poses[i] = particles[i][0:3, 3]
-            particle_poses_all.append(particle_poses)
 
             # project particles onto trajectory
             proj_ind = np.random.choice(list(range(N)), int(N * self.alpha))
@@ -270,16 +278,22 @@ class Particle_Filter():
             weights = weights/sum_weights
             # resample
             particle_ind = list(range(N))
-            particle_ind = np.random.choice(particle_ind, p=weights)
-            new_particles = particles
-            for i in range(N):
-                new_particles[i] = particles[i]
+            particle_ind = np.random.choice(particle_ind, p=weights, size=N)
+            # new_particles = particles.copy()
+            # for i in range(N):
+            #     new_particles[i] = particles[particle_ind[i]]
+            # particles = new_particles
+            particles = particles[particle_ind, :, :]
+            particle_poses_all.append(particle_poses)
 
         np.save(measurement_model_path, particle_poses_all, allow_pickle=False)
 if __name__ == '__main__':
-    filter = Particle_Filter(10, std_w=0.02, std_v=0.2)
-    mapping_indices = list(range(20))
-    localization_indices = list(range(20))
+    filter = Particle_Filter(30, std_w=0.02, std_v=0.2)
+    # 70 to 250
+    mapping_indices = list(range(70, 250))
+    # 1580 to 1850
+    localization_indices = list(range(1700, 1850))
+    localization_indices.reverse()
     filter.run(mapping_indices, localization_indices)
 
 

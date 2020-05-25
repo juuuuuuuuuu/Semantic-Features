@@ -400,12 +400,12 @@ if __name__ == '__main__':
     _, labels_without_occlusion = pcls_to_image_labels(pointclouds, labels, pose, P_cam2, (370, 1226))
 
     print(np.unique(np.nan_to_num(label_img)))
-    plt.imshow(np.where(np.isnan(label_img), 0., label_img * 10.))
-    plt.show()
-    plt.imshow(mask)
-    plt.show()
-    plt.imshow(np.where(np.isnan(labels_without_occlusion), 0., labels_without_occlusion * 10.))
-    plt.show()
+    # plt.imshow(np.where(np.isnan(label_img), 0., label_img * 10.))
+    # plt.show()
+    # plt.imshow(mask)
+    # plt.show()
+    # plt.imshow(np.where(np.isnan(labels_without_occlusion), 0., labels_without_occlusion * 10.))
+    # plt.show()
     #####################################################################
 
     print("Number of landmarks is: {}".format(labels.shape[0]))
