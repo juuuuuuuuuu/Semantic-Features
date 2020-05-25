@@ -182,14 +182,12 @@ class Particle_Filter():
 
             depth_image, label_image = utils.pcls_to_image_labels(local_map, feat, particles[i], self.Kmat, (370, 1226))
             im_prob = 1
-            #plt.imshow(np.where(np.isnan(label_image), 0., label_image * 10.))
-            #plt.show()
 
             #get a boolean mask of all pixels that are matched with the map
             proj_mask = np.where(~np.isnan(label_image), True, False)
-            proj_world = label_image[proj_mask]
+            map_classes = list(map(int, label_image[proj_mask]))
             pred_image = instance_im[proj_mask]
-            map_classes = np.array(list(map(instances_to_classes_map, pred_image)))
+            pred_image = np.array(list(map(instances_to_classes_map, pred_image)))
             detect_prob = np.array(list(map(cnn_pmf_map, zip(map_classes, pred_image)))) * 0.9 + 0.1
             im_prob = np.cumsum(detect_prob)[-1]
             im_prob = im_prob / np.cumsum(np.array(list(map(class_marginal_map, pred_image))) * 0.1)[-1]
@@ -279,9 +277,9 @@ class Particle_Filter():
 
         np.save(measurement_model_path, particle_poses_all, allow_pickle=False)
 if __name__ == '__main__':
-    filter = Particle_Filter(100, std_w=0.02, std_v=0.2)
-    mapping_indices = list(range(200))
-    localization_indices = list(range(200))
+    filter = Particle_Filter(10, std_w=0.02, std_v=0.2)
+    mapping_indices = list(range(20))
+    localization_indices = list(range(20))
     filter.run(mapping_indices, localization_indices)
 
 
