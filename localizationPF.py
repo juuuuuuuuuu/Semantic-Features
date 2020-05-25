@@ -7,6 +7,7 @@ from scipy.linalg import expm
 import pykitti
 import scipy.spatial.transform.rotation as r
 from tools import utils
+from matplotlib import pyplot as plt
 # World is twisted so we need to transform.
 
 
@@ -56,8 +57,8 @@ def L2_norm(x, y):
     return ((x - y)**2).sum()**0.5
 
 class Particle_Filter():
-    def __init__(self):
-        self.N = 100
+    def __init__(self, N):
+        self.N = N
         self.dt = 1/20
         self.max_vis = 30.0
         self.std_w = 0
@@ -75,11 +76,12 @@ class Particle_Filter():
         self.results_path = os.path.join(self.ROOT_DIR, "results/_results.txt")
         self.instances_path = os.path.join(self.ROOT_DIR, "content/kitti_dataset/dataset/sequences/08/instances_2")
         self.CNN_PMF_PATH = os.path.join(self.ROOT_DIR, 'results/PMFs')
+        self.CLASS_MARGINAL = os.path.join(self.ROOT_DIR, 'detection_probabilities')
+        self.class_marginal = np.load(self.CLASS_MARGINAL + '.npy')
         self.basedir = 'content/kitti_dataset/dataset'
         self.sequence = '08'
         self.CNN_PMF_PATH = os.path.join(self.ROOT_DIR, 'results/PMFs')
         self.cnn_pmf = np.load(self.CNN_PMF_PATH + '.npy') # one row is the pmf of the cnn detecting the class, when the gt corresponding to the row is present
-        self.
         self.dataset = pykitti.odometry(self.basedir, self.sequence)
         self.Kmat = self.dataset.calib.P_rect_20
         self.T_w0_w = np.array([[0., 0., 1., 0.],
@@ -143,10 +145,11 @@ class Particle_Filter():
         """ takes an image_id as measurement, as well as the particles, and 3D-map (U, D)
         """
         # select local map to project into image plane
-        image_ids = os.listdir(os.path.join(self.instances_path))
-        instance_im = cv2.imread(os.path.join(self.instances_path, '{}'.format(image_ids[image_id])), cv2.IMREAD_GRAYSCALE)
-        print(os.path.join(self.instances_path, '{}'.format(image_ids[image_id])))
-        weights = np.zeros(particles.shape)
+        image_id = "L{:06d}.png".format(image_id)
+        print(image_id)
+        instance_im = cv2.imread(os.path.join(self.instances_path, '{}'.format(image_id)), cv2.IMREAD_GRAYSCALE)
+        print(os.path.join(self.instances_path, '{}'.format(image_id)))
+        weights = np.zeros(self.N)
         for i in range(self.N):
             map = []
             feat = []
@@ -161,11 +164,13 @@ class Particle_Filter():
 
             depth_image, label_image = utils.pcls_to_image_labels(map, feat, particles[i], self.Kmat, (370, 1226))
             im_prob = 1
+            plt.imshow(np.where(np.isnan(label_image), 0., label_image * 10.))
+            plt.show()
             for u in range(1226):
                 for v in range(370):
                     if not np.isnan(label_image[v, u]):
                         #print(self.cnn_pmf[int(label_image[v, u]), instance_im[v, u]])
-                        im_prob = im_prob * self.cnn_pmf[int(label_image[v, u]), instance_im[v, u]]
+                        im_prob = im_prob * (self.cnn_pmf[int(label_image[v, u]), instance_im[v, u]] * 0.8 + im_prob * 0.2)/self.class_marginal[instance_im[v, u]]
                         print(im_prob)
 
             weights[i] = im_prob
@@ -225,16 +230,21 @@ class Particle_Filter():
             # calculate weights with measurement update
             print(image_id)
             weights = self.measurement_update(image_id, particles, U, D)
+            # normalize
+            sum_weights = weights.sum()
+            weights = weights/sum_weights
+            print(weights.sum())
             # resample
+            print("weights: {}".format(weights))
             for i in range(N):
                 particles[i] = weighted_choice(particles, weights)
 
         np.save(measurement_model_path, particle_poses_all, allow_pickle=False)
         print(particles[0])
 if __name__ == '__main__':
-    filter = Particle_Filter()
-    mapping_indices = list(range(200))
-    localization_indices = list(range(200))
+    filter = Particle_Filter(10)
+    mapping_indices = list(range(10))
+    localization_indices = list(range(10))
     filter.run(mapping_indices, localization_indices)
 
 

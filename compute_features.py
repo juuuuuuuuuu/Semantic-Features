@@ -112,8 +112,8 @@ def fit_line(pcl, class_id):
         #y = y[inlier_opt]
         #z = z[inlier_opt]
         if x_opt.size > 0:
-            x = np.array([x_opt,x_opt])
-            z = np.array([z_opt,z_opt])
+            x = np.array([x_opt, x_opt])
+            z = np.array([z_opt, z_opt])
             y = np.array([y_min, y_max])
         else:
             x = x_opt
