@@ -2,15 +2,13 @@ import numpy as np
 import pandas as pd
 import os
 import cv2
+import random
 from scipy.linalg import expm
 import pykitti
 import scipy.spatial.transform.rotation as r
-
+from tools import utils
 # World is twisted so we need to transform.
-T_w0_w = np.array([[0., 0., 1., 0.],
-                   [-1., 0., 0., 0.],
-                   [0., -1., 0., 0.],
-                   [0., 0., 0., 1.]])
+
 
 dt = 1/20
 max_vis = 30.0
@@ -26,6 +24,14 @@ P0 = 0.2
 # pr_d = vector of probabilities for each class find via validation class mismatches? detector property?
 w = np.array([0.0, 0.0, 1.0])
 v_t = np.array([1.0, 0.0, 0.0])
+ROOT_DIR = os.path.abspath('')
+results_path = os.path.join(ROOT_DIR, "results/_results.txt")
+instances_path = os.path.join(ROOT_DIR, "content/kitti_dataset/dataset/sequences/08/instances_2")
+CNN_PMF_PATH = os.path.join(ROOT_DIR, 'results/PMFs')
+basedir = 'content/kitti_dataset/dataset'
+sequence = '08'
+CNN_PMF_PATH = os.path.join(ROOT_DIR, 'results/PMFs')
+cnn_pmf = np.load(CNN_PMF_PATH + '.npy') # one row is the pmf of the cnn detecting the class, when the gt corresponding to the row is present
 
 R_init = lambda th: np.array([[np.cos(th), -np.sin(th), 0.0],
                   [np.sin(th), np.cos(th), 0.0],
@@ -74,6 +80,21 @@ def load_frame(path):
     image_ids = np.unique(image_ids)
     return U, D, image_ids
 
+def weighted_choice(objects, weights):
+    """ returns randomly an element from the sequence of 'objects',
+        the likelihood of the objects is weighted according
+        to the sequence of 'weights', i.e. percentages."""
+
+    weights = np.array(weights, dtype=np.float64)
+    sum_of_weights = weights.sum()
+    # standardization:
+    np.multiply(weights, 1 / sum_of_weights, weights)
+    weights = weights.cumsum()
+    x = random()
+    for i in range(len(weights)):
+        if x < weights[i]:
+            return objects[i]
+
 
 def get_instances(path, image_id):
     image_path = os.path.join(path, 'L{}.png'.format(image_id))
@@ -116,29 +137,71 @@ def get_gt_velocities(poses):
     angular_velocities = []
     for i in range(len(poses) - 1):
         linear_v = poses[i][:3, :3].T.dot(poses[i + 1][:3, 3] - poses[i][:3, 3])
+        #linear_v = (poses[i + 1][:3, 3] - poses[i][:3, 3])
         linear_velocities.append(linear_v)
-        rotational_v = poses[i][:3, :3].T.dot(get_delta_rot(poses[i + 1][:3, :3], poses[i][:3, :3]))
+        #rotational_v = poses[i][:3, :3].T.dot(get_delta_rot(poses[i + 1][:3, :3], poses[i][:3, :3]))
+        rotational_v = (get_delta_rot(poses[i + 1][:3, :3], poses[i][:3, :3]))
         angular_velocities.append(rotational_v)
 
     return linear_velocities, angular_velocities
 
+def measurement_update(image_id, particles, U, D):
+    """ takes an image_id as measurment, as well as the particles, and 3D-map (U, D)
+    """
+    # select local map to project into image plane
+    instances_path = os.path.join(ROOT_DIR, "content/kitti_dataset/dataset/sequences/08/instances_2")
+    image_ids = os.listdir(os.path.join(instances_path))
+    instance_im = cv2.imread(os.path.join(instances_path, '{}'.format(image_ids[image_id])))
+    print(os.path.join(instances_path, '{}'.format(image_ids[image_id])))
+    weights = np.zeros(particles.shape)
+    for i in range(particles.size):
+        map = []
+        feat = []
+        for j, u in enumerate(U):
+            if u[0:3, :, 0].size > 0:
+                coord_mean = u[0:3, :, 0].mean(axis=1)
+                # print(coord_mean.shape)
+                dist = np.linalg.norm(coord_mean - particles[i][0:3, 3])
+                if dist < max_vis:
+                    map.append(u[0:3, :, 0].T)
+                    feat.append(D[j])
 
+        depth_image, label_image = utils.pcls_to_image_labels(map, feat, particles[i], Kmat, (370, 1226))
+        im_prob = 1
+        for u in range(1226):
+            for v in range(370):
+                if label_image[u, v]:
+                    print(cnn_pmf)
+                    print(label_image)
+                    print(instance_im)
+                    im_prob = im_prob * 0.8 * cnn_pmf[label_image[u, v], instance_im[u, v]]
+                    print(im_prob)
+        weights[i] = im_prob
+    return weights
 if __name__ == '__main__':
-    ROOT_DIR = os.path.abspath('')
-    results_path = os.path.join(ROOT_DIR, "results/_results.txt")
-    instanes_path = os.path.join(ROOT_DIR, "content/kitti_dataset/dataset/sequences/08/instances_2")
-    basedir = 'content/kitti_dataset/dataset'
-    sequence = '08'
+
+
     dataset = pykitti.odometry(basedir, sequence)
-    Kmat = dataset.calib.P_rect_20[0:3, 0:3]
+    Kmat = dataset.calib.P_rect_20
+    T_w0_w = np.array([[0., 0., 1., 0.],
+                       [-1., 0., 0., 0.],
+                       [0., -1., 0., 0.],
+                       [0., 0., 0., 1.]])
+    T_cam0_cam2 = np.linalg.inv(dataset.calib.T_cam0_velo).dot(dataset.calib.T_cam2_velo)
     #Kmat = np.concatenate((Kmat, np.array([0, 0, 0, 1]).reshape(4,1)), axis=1)
     print(Kmat)
+    cnn_pmf = np.load(CNN_PMF_PATH + '.npy') # one row is the pmf of the cnn detecting the class, when the gt corresponding to the row is present
     U, D, image_ids = load_frame(results_path)
+
     # initialize particles and weights
     N = 100
+    poses = []
+    #for image_id in image_ids:
+     #   poses.append((dataset.poses[image_id].dot(T_cam0_cam2)))
 
-    poses = [T_w0_w.dot(dataset.poses[image_id]) for image_id in image_ids]
 
+    poses = [T_w0_w.dot(dataset.poses[image_id].dot(T_cam0_cam2)) for image_id in image_ids]
+    v, w = get_gt_velocities(poses)
     particles = np.zeros((N, 4, 4))
     weights = np.ones(N)*1/N
     for i in range(N):
@@ -150,49 +213,40 @@ if __name__ == '__main__':
         particles[i] = poses[0]
     print(particles[0])
 
-    # Motion update
-
-    # measure w_t and v_t
-    v, w = get_gt_velocities(poses)
     particle_poses_all = []
-    for w_t, v_t in zip(w, v):
+
+    # loop trough all measurements
+    for time, image_id in enumerate(image_ids):
+        #pose = T_w0_w.dot(dataset.poses[image_id].dot(T_cam0_cam2))
+
+        # measure w_t and v_t
+        w_t, v_t = w[time], v[time]
+        # Motion update
         particle_poses = np.zeros((N, 3))
         for i in range(N):
             particles[i] = motion_update(w_t, v_t).dot(particles[i])
             particle_poses[i] = particles[i][0:3, 3]
         particle_poses_all.append(particle_poses)
-    measurement_model_path = os.path.join(ROOT_DIR, "particle_poses")
+        measurement_model_path = os.path.join(ROOT_DIR, "particle_poses")
+
+        # project particles onto trajectory
+        proj_ind = np.random.choice(list(range(N)), int(N * alpha))
+        for i in proj_ind:
+            position = particles[i][0:3, 3]
+            dist = ((np.asarray(poses)[:, 0:3, 3] - position) ** 2).sum(axis=1) ** 0.5
+            sorted_indices = np.argpartition(dist, 1)
+            proj = proj_trajectory(sorted_indices, poses)
+            # print("proj: {}".format(proj))
+            # print("position: {}".format(position))
+            particles[i][0:3, 3] = proj
+
+        # calculate weights with measurement update
+        print(image_id)
+        weights = measurement_update(image_id, particles, U, D)
+        # resample
+        for i in range(N):
+            particles[i] = weighted_choice(particles, weights)
+
+
     np.save(measurement_model_path, particle_poses_all, allow_pickle=False)
     print(particles[0])
-
-    # project particles onto trajectory
-    proj_ind = np.random.choice(list(range(N)), int(N*alpha))
-    for i in proj_ind:
-        position = particles[i][0:3, 3]
-        dist = ((np.asarray(poses)[:, 0:3, 3] - position)**2).sum(axis=1)**0.5
-        sorted_indices = np.argpartition(dist, 1)
-        proj = proj_trajectory(sorted_indices, poses)
-        #print("proj: {}".format(proj))
-        #print("position: {}".format(position))
-        particles[i][0:3, 3] = proj
-
-    # select local map to project into image plane
-    for i in range(N):
-        map = []
-        feat = []
-        for j, u in enumerate(U):
-            coord_mean = u[0:3, :, 0].mean(axis=1)
-            #print(coord_mean.shape)
-            dist = np.linalg.norm(coord_mean - particles[i][0:3, 3])
-            if dist < max_vis:
-                map.append(u[0:3, :, 0])
-                feat.append(D[j])
-
-        #project map points into image plane
-        R_t = particles[i][0:3, 0:3].T
-        t = particles[i][0:3, 3].reshape((3, 1))
-        R_t = np.concatenate((R_t, -R_t.dot(t)), axis=1)[0:3, :]
-        KRmat = Kmat.dot(R_t)
-        im_x, im_y, im_z = KRmat.dot(particles[i][0:3, 3])
-        im_x = im_x / im_z
-        im_y = im_y / im_z
