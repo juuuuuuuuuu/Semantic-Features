@@ -366,13 +366,14 @@ if __name__ == '__main__':
             np.save(bbox_path, bbox, allow_pickle=False)
             results.append([frame_id, i, class_ids[i], pcl_path, bbox_path, transform[:3, 3]])
 
-    pixel_per_class[0] = 1. - np.sum(pixel_per_class)
+    detection_probabilities = pixel_per_class / tot_pixels
+    detection_probabilities[0] = 1. - np.sum(detection_probabilities)
     print("Probabilities:")
     for i in range(pixel_per_class.shape[0]):
         print("Class {}:".format(i))
-        print("Probability: {}".format(pixel_per_class[i] / tot_pixels))
+        print("Probability: {}".format(detection_probabilities[i]))
 
-    np.save("detection_probabilites")
+    np.save("detection_probabilities", detection_probabilities)
 
     if MERGE_BBOXES:
 
