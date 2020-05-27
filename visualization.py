@@ -9,7 +9,8 @@ import matplotlib.pyplot as plt
 
 
 class LandmarkRenderer:
-    def __init__(self, poses, landmarks, landmark_pcls, landmark_bbox, labels, frame_ids, label_colors, mbboxes, class_id):
+    def __init__(self, poses, landmarks, landmark_pcls, landmark_bbox, labels, frame_ids,
+                 label_colors, mbboxes, class_id, particles):
         self.poses = poses
         self.landmarks = landmarks
         self.landmark_pcls = landmark_pcls
@@ -29,6 +30,8 @@ class LandmarkRenderer:
         self.render_mbboxes = False
         self.mbboxes = mbboxes
         self.class_id = class_id
+        self.particles = particles
+        self.particle_pointer = 0
 
         self.landmark_render_objects = render_pcls(self.poses,
                                                    self.landmark_pcls,
@@ -36,8 +39,8 @@ class LandmarkRenderer:
                                                    self.lm_labels,
                                                    self.label_colors,
                                                    None)
-                                                
-        self.mbboxes_rendered = render_mbboxes_func(self.label_colors, self.mbboxes, self.class_id)
+
+        # self.mbboxes_rendered = render_mbboxes_func(self.label_colors, self.mbboxes, self.class_id)
 
         self.ground_grid = render_ground_grid()
 
@@ -54,6 +57,8 @@ class LandmarkRenderer:
         vis.register_key_callback(ord("S"), self.get_screen_cap_callback())
         vis.register_key_callback(ord("G"), self.get_switch_method())
         vis.register_key_callback(ord("H"), self.get_show_mbboxes())
+        vis.register_key_callback(ord("L"), self.get_switch_particle_callback(forward=True))
+        vis.register_key_callback(ord("K"), self.get_switch_particle_callback(forward=False))
         
 
         print("Press 'A' to toggle between show all and show only one frame.")
@@ -62,6 +67,8 @@ class LandmarkRenderer:
         print("Press 'S' to capture screenshot.")
         print("Press G to switch postprocessing method.")
         print("Press h to show merged bounding boxes.")
+        print("Press 'L' to switch to next particle time step.")
+        print("Press 'K' to switch to previous particle time step.")
         print("num_methods: {}".format(self.num_methods))
         for i, geometries in enumerate(self.landmark_render_objects):
             geometries = geometries[0::self.num_methods][0]
@@ -69,6 +76,8 @@ class LandmarkRenderer:
                 vis.add_geometry(geometry)
 
         vis.add_geometry(self.ground_grid)
+
+        vis.add_geometry(render_particles(self.particles[self.particle_pointer, :, :]))
 
         vis.run()
         vis.destroy_window()
@@ -83,6 +92,7 @@ class LandmarkRenderer:
             for mbbox in self.mbboxes_rendered:
                 vis.add_geometry(mbbox)
 
+        vis.add_geometry(render_particles(self.particles[self.particle_pointer, :, :]))
 
         if self.render_boxes:
             if self.render_single_frame:
@@ -116,7 +126,6 @@ class LandmarkRenderer:
             for geometries in self.landmark_render_objects:
                 for geometry in geometries[self.method::self.num_methods][0]:
                     vis.add_geometry(geometry)
-
 
         vis.add_geometry(self.ground_grid)
 
@@ -168,6 +177,20 @@ class LandmarkRenderer:
 
         return switch_index
 
+    def get_switch_particle_callback(self, forward):
+        def switch_index(vis):
+            if forward:
+                self.particle_pointer = self.particle_pointer + 1
+            else:
+                self.particle_pointer = self.particle_pointer - 1
+            self.particle_pointer = self.particle_pointer % self.particles.shape[0]
+
+            print("Now showing particles {}/{}".format(
+                self.particle_pointer + 1, self.particles.shape[0]))
+            self.update_render(vis)
+
+        return switch_index
+
     def get_switch_method(self):
         def switch_method(vis):
             if self.method < self.num_methods - 1:
@@ -208,6 +231,12 @@ def render_mbboxes_func(label_colors, mbboxes, class_id):
     return merged_boxes
 
 
+def render_particles(particles):
+    pcl = o3d.geometry.PointCloud(points=o3d.utility.Vector3dVector(particles))
+    pcl.colors = o3d.utility.Vector3dVector([[1., 0., 0.] for j in range(particles.shape[0])])
+    return pcl
+
+
 def render_pcls(poses, pcls, bbox, labels, label_colors, indices):
     geometries = []
 
@@ -229,7 +258,7 @@ def render_pcls(poses, pcls, bbox, labels, label_colors, indices):
             if pcl_i.size > 0:
                 # print(pcl_i)
                 pcl = o3d.geometry.PointCloud(
-                points=o3d.utility.Vector3dVector(np.transpose(pcl_i).astype(float))
+                    points=o3d.utility.Vector3dVector(np.transpose(pcl_i).astype(float))
                 )
                 pcl.colors = o3d.utility.Vector3dVector([label_colors[labels[i]] for j in range(pcl_i.shape[1])])
                 g_m.append(pcl)
@@ -326,8 +355,9 @@ def load_data(path, n):
     frame_ids = np.array(frame_ids, dtype=int)
     poses = np.array(poses, dtype=float)
     #ToDo change path:
-    mergedbboxes = np.load("results/mergedbbox.npy")
-    class_id = np.load("results/classes_list.npy")
+    # mergedbboxes = np.load("results/mergedbbox.npy")
+    mergedbboxes = None
+    class_id = None  # np.load("results/classes_list.npy")
     return poses, pcls, bbox, labels, frame_ids, mergedbboxes, class_id
 
 
@@ -340,17 +370,45 @@ def load_lines(path):
     return data_lines
 
 
-
-
 if __name__ == '__main__':
     path = "results/_results.txt"
 
-    poses, pcls, bbox, labels, frame_ids, mergedbboxes, class_id = load_data(path, 1000000)
+    poses, pcls, bbox, labels, frame_ids, mergedbboxes, class_id = load_data(path, 1500)
 
-    #pcl_test = [np.load("pcl_test.npy")]
-    #labels_test = np.array([0])
-    #frame_ids = np.array([0])
+    particles = np.load("particle_poses.npy")
+
+    #####################################################################
+    # PCL projection example:
+    import pykitti
+    basedir = 'content/kitti_dataset/dataset'
+    sequence = '08'
+
+    dataset = pykitti.odometry(basedir, sequence)
+
+    pointclouds = [pcl[:3, :, 0].T for pcl in pcls]
+
+    T_w0_w = np.array([[0., 0., 1., 0.],
+                       [-1., 0., 0., 0.],
+                       [0., -1., 0., 0.],
+                       [0., 0., 0., 1.]])
+    pose = T_w0_w.dot(dataset.poses[0])
+
+    P_cam2 = dataset.calib.P_rect_20
+    # from tools.utils import pcls_to_image_labels_with_occlusion
+    # from tools.utils import pcls_to_image_labels
+    # label_img, mask = pcls_to_image_labels_with_occlusion(pointclouds, labels, pose, P_cam2, (370, 1226), 0.2, 30.)
+    # _, labels_without_occlusion = pcls_to_image_labels(pointclouds, labels, pose, P_cam2, (370, 1226))
+
+    # print(np.unique(np.nan_to_num(label_img)))
+    # plt.imshow(np.where(np.isnan(label_img), 0., label_img * 10.))
+    # plt.show()
+    # plt.imshow(mask)
+    # plt.show()
+    # plt.imshow(np.where(np.isnan(labels_without_occlusion), 0., labels_without_occlusion * 10.))
+    # plt.show()
+    #####################################################################
 
     print("Number of landmarks is: {}".format(labels.shape[0]))
-    renderer = LandmarkRenderer(poses, None, pcls, bbox, labels, frame_ids, get_colors(), mergedbboxes, class_id)
+    renderer = LandmarkRenderer(poses, None, pcls, bbox, labels, frame_ids, get_colors(), mergedbboxes, class_id,
+                                particles)
     renderer.run()

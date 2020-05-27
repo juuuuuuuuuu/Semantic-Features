@@ -1,4 +1,6 @@
 import numpy as np
+import cv2
+from numba import njit, jit
 
 
 # TODO: Implement functions here:
@@ -73,6 +75,89 @@ def camera_frame_to_world_transform(heading, yaw_ext, pitch_ext, roll_ext, x_ext
     return T_w_v.dot(T_v_c.dot(np.linalg.inv(C_c)))
 
 
+def pcls_to_image_labels_with_occlusion(pointclouds, pcl_means, labels, pose,
+                                        intrinsic_matrix, img_shape, point_size, max_dist):
+    final_image = np.zeros(img_shape)
+    # Mask is 1 when occupied, 0 when free.
+    final_mask = np.zeros(img_shape, dtype=bool)
+
+    if len(pointclouds) > 0:
+        # Get the depths of the point cloud means in camera space.
+        transform = np.linalg.inv(pose)
+        pcl_mean_depths = np.array([transform.dot(np.hstack([pcl_means[i], 1.]).T).T[2] for i in range(len(pointclouds))
+                                    if pointclouds[i].shape[0] > 0])
+        ascending_depth = np.argsort(pcl_mean_depths)
+        print("Number of landmarks in image: {}".format(len(ascending_depth)))
+        for idx in ascending_depth:
+            mean_depth = pcl_mean_depths[idx]
+
+            if 0. >= mean_depth > max_dist:
+                continue
+
+            pcl = pointclouds[idx]
+            depth_img, label_image = pcls_to_image_labels([pcl], [labels[idx]], pose, intrinsic_matrix, img_shape)
+            final_image = np.where(final_mask, final_image, label_image)
+            mask = np.where(np.isnan(label_image), 0., 1.)
+            point_size_in_image = min(100, max(0, int(np.ceil(intrinsic_matrix[0, 0] * point_size / mean_depth))))
+            kernel = np.ones((point_size_in_image, point_size_in_image))
+            mask = cv2.dilate(mask, kernel)
+            final_mask = np.logical_or(mask, final_mask)
+
+    return final_image, final_mask
+
+
+def pcls_to_image_labels(pointclouds, pcl_means, labels, pose, intrinsic_matrix, img_shape):
+    """ Projects pointclouds with labels to camera image.
+        pointclouds is a list of pointclouds with shape (N, 3)
+    """
+    image_width = img_shape[1]
+    image_height = img_shape[0]
+
+    pointclouds = [pointclouds[i] for i in range(len(pointclouds))
+                   if np.linalg.inv(pose).dot(np.hstack([pcl_means[i], 1.]).T)[2] > 0.]
+
+    depth_image = np.zeros((image_height, image_width), dtype=np.float32)
+    label_image = np.nan * np.zeros((image_height, image_width), dtype=np.int)
+
+    if len(pointclouds) > 0:
+        pointcloud = np.vstack(pointclouds)
+        labels = np.hstack([np.full((pointclouds[i].shape[0],), labels[i]) for i in range(len(pointclouds))])
+
+        pcl_inside_view = pointcloud
+        pcl_inside_view_xyz = np.hstack((pcl_inside_view,
+                                        np.ones((pcl_inside_view.shape[0], 1))))
+
+        pcl_inside_view_xyz = np.linalg.inv(pose).dot(pcl_inside_view_xyz.T)
+        index_front = pcl_inside_view_xyz[2, :] > 0
+        labels_inside_view = labels[index_front]
+        pcl_inside_view_xyz = pcl_inside_view_xyz[:, index_front]
+        pcl_inside_view = pcl_inside_view_xyz[:3, :].T
+
+        pcl_projected = intrinsic_matrix.dot(pcl_inside_view_xyz)
+        pixel = np.rint(pcl_projected / pcl_projected[2, :]).astype(int)[:2, :]
+
+        index_bool = np.logical_and(
+          np.logical_and(0 <= pixel[0], pixel[0] < image_width),
+          np.logical_and(0 <= pixel[1], pixel[1] < image_height))
+        pixel = pixel[:, index_bool]
+
+        pcl_inside_view = pcl_inside_view[index_bool, :]
+        labels_inside_view = labels_inside_view[index_bool]
+
+        # Considering occlusion, we need to be careful with the order of assignment
+        # descending order according to the z coordinate.
+        index_sort = pcl_inside_view[:, 2].argsort()[::-1]
+        pixel = pixel[:, index_sort]
+        pcl_inside_view = pcl_inside_view[index_sort, :]
+        labels_inside_view = labels_inside_view[index_sort]
+
+        depth_image[pixel[1], pixel[0]] = pcl_inside_view[:, 2]
+        label_image[pixel[1], pixel[0]] = labels_inside_view
+
+    return depth_image, label_image
+
+
+@njit
 def pcl_to_image(pointcloud, T_pcl_center_to_cam, intrinsic_matrix, img_shape):
     """ Projects a pointcloud to camera image.
     int

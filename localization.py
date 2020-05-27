@@ -197,7 +197,7 @@ def render_landmarks(landmarks, labels, label_colors, size=0.5):
     for i in range(len(landmarks)):
         box = o3d.geometry.AxisAlignedBoundingBox(min_bound=landmarks[i, :] - size_vec,
                                                   max_bound=landmarks[i, :] + size_vec)
-        box.color = label_colors[labels[i]]
+        box.color = label_colors[int(labels[i])]
         boxes.append(box)
 
     return boxes
@@ -312,8 +312,10 @@ class Map:
         self.oct_trees = {}
         self.all_landmarks = []
         self.all_landmark_labels = []
+        self.min_inliers = 5
 
     def load_landmarks(self, frame_lms, frame_labels):
+        print(frame_lms[92])
         map_landmarks = np.vstack(frame_lms)
         map_landmark_labels = np.concatenate(frame_labels, axis=0)
 
@@ -694,6 +696,9 @@ class Map:
         return transform, inliers
 
     def odometry_ransac(self, matches, frame_landmarks):
+        # Minimum number of inliers for proposal.
+        min_inlier_support = max(self.min_inliers, int(frame_landmarks.shape[0] / 2))
+
         # Number of best matches to be considered in the query.
         match_count = frame_landmarks.shape[0] * 2
 
@@ -741,7 +746,19 @@ class Map:
             num_inliers = inliers[0].shape[0]
 
             if num_inliers >= min_inlier_support:
-                final_T = triangle_transform(matched_frame_lms[inliers[0], :].T, matched_map_lms[inliers[0], :].T)
+                # Iteratively find the best transformation.
+                previous_num_inliers = 0
+                while previous_num_inliers < num_inliers:
+                    previous_num_inliers = num_inliers
+                    previous_T = proposal_T
+                    previous_inliers = inliers
+                    num_inliers, inliers, proposal_T = \
+                        find_inliers(matched_frame_lms, matched_map_lms, inliers, max_error)
+                    if num_inliers > previous_num_inliers:
+                        final_T = proposal_T
+                    else:
+                        final_T = previous_T
+                        inliers = previous_inliers
                 print("Finish RANSAC after {} iterations with {} inliers.".format(num_iterations, num_inliers))
                 return final_T, matches[inliers[0], :]
 
@@ -786,48 +803,105 @@ def triangle_transform(a, b):
     return np.vstack((np.hstack((R, p_w_f)), np.array([0., 0., 0., 1.])))
 
 
+def fix_rotation(r):
+    x = r[0, :]
+    y = r[1, :]
+    z = r[2, :]
+    error = np.dot(x, y.T)
+    x_ort = x - (error/2) * y
+    y_ort = y - (error/2) * x
+    z_ort = np.cross(x_ort, y_ort)
+
+    x_new = 1. / 2. * (3. - np.dot(x_ort, x_ort.T)) * x_ort
+    y_new = 1. / 2. * (3. - np.dot(y_ort, y_ort.T)) * y_ort
+    z_new = 1. / 2. * (3. - np.dot(z_ort, z_ort.T)) * z_ort
+
+    return np.vstack((x_new, y_new, z_new))
+
+
+def get_random_rot():
+    a = np.random.random(3) * np.array([np.pi * 2, np.pi * 2, np.pi * 2])
+    # print(a)#
+    a = np.zeros((3, ))
+
+    rot_z = np.array([[np.cos(a[0]), -np.sin(a[0]), 0], [np.sin(a[0]), np.cos(a[0]), 0], [0., 0., 1.]])
+    rot_y = np.array([[np.cos(a[1]), 0, -np.sin(a[1])], [0., 1., 0.], [np.sin(a[1]), 0, np.cos(a[1])]])
+    rot_x = np.array([[1., 0., 0.], [0, np.cos(a[2]), -np.sin(a[2])], [0, np.sin(a[2]), np.cos(a[2])]])
+
+    return np.dot(rot_z, np.dot(rot_y, rot_x))
+
+
 def load_frame(path, frame_indices):
     results = pd.read_csv(path, header=None, sep=' ')
     data = np.array(results.values)
     frame_landmarks = []
     frame_labels = []
     poses = []
-    for i in frame_indices:
+    empty_frames = []
+    ind_map = {}
+    for n, i in enumerate(frame_indices):
         frame_data = data[np.where(data[:, 0] == i), :][0, :, :]
-        labels = frame_data[:, 2]
-        frame_paths = frame_data[:, 4]
-        pose = frame_data[0, 5:8].astype(float)
-        landmarks = np.zeros((len(frame_paths), 3))
-        for j, f_path in enumerate(frame_paths):
-            bbox = np.load(f_path + '.npy')[:, 1]
-            landmarks[j, :] = (bbox[:3] + bbox[3:6]) / 2.
-        frame_landmarks.append(landmarks)
-        frame_labels.append(labels)
-        poses.append(pose)
+        if frame_data.shape[0] > 0:
+            labels = frame_data[:, 2]
+            frame_paths = frame_data[:, 4]
+            pose = frame_data[0, 5:8].astype(float)
+            landmarks = np.zeros((len(frame_paths), 3))
+            for j, f_path in enumerate(frame_paths):
+                bbox = np.load(f_path + '.npy')[:, 0]
+                landmarks[j, :] = (bbox[:3] + bbox[3:6]) / 2.
+            landmarks = np.delete(landmarks, np.where([np.isnan(landmarks[i, :]).any() for i in
+                                                       range(landmarks.shape[0])]), axis=0)
 
-    return poses, frame_landmarks, frame_labels
+            if landmarks.shape[0] > 0:
+                frame_landmarks.append(landmarks)
+                frame_labels.append(labels)
+                poses.append(pose)
+                ind_map[i] = len(poses)-1
+            else:
+                frame_landmarks.append(np.ones((1, 3)) * -1000)
+                frame_labels.append(np.zeros((1,)))
+                poses.append(pose)
+                print("Empty frame.")
+                empty_frames.append(i)
+        else:
+            frame_landmarks.append(np.ones((1, 3)) * -1000)
+            frame_labels.append(np.zeros((1,)))
+            poses.append(np.zeros((1, 3)))
+            print("Empty frame.")
+            empty_frames.append(i)
+
+        print(frame_labels[n].shape)
+
+    return poses, frame_landmarks, frame_labels, empty_frames, ind_map
 
 
 if __name__ == '__main__':
     map = Map()
+    np.random.seed(10)
 
-    FRAME_COUNT = 271
+    FRAME_COUNT = 200
+    MIN_INLIER = 5
 
-    frame_list = list(range(FRAME_COUNT))
-    poses, f_lms, f_labels = load_frame("/home/felix/vision_ws/Semantic-Features/results/_results.txt", frame_list)
+    #frame_list = list(range(10, 253)) + list(range(1580, 1828)) 1394
+    frames_for_localization = list(range(1372, 1513))
+    frames_for_mapping = list(range(693, 804))
+    frame_list = frames_for_localization + frames_for_mapping
+    poses, f_lms, f_labels, empty_frames, ind_map = load_frame("results/_results.txt", frame_list)
 
     # Use every third frame for localization, all other frames for mapping
-    frames_for_localization = list(range(0, FRAME_COUNT, 3))
-    frames_for_mapping = [i for i in frame_list if i not in frames_for_localization]
 
-    map.load_landmarks([f_lms[i] for i in frames_for_mapping], [f_labels[i] for i in frames_for_mapping])
+    print(len(frames_for_localization))
+    print(len(frames_for_mapping))
+    frames_for_localization = [i for i in frames_for_localization if i not in empty_frames]
+    frames_for_mapping = [i for i in frames_for_mapping if i not in empty_frames]
+    print(len(frames_for_localization))
+    print(len(frames_for_mapping))
+    print(ind_map)
+    map.load_landmarks([f_lms[ind_map[i]] for i in frames_for_mapping], [f_labels[ind_map[i]] for i in frames_for_mapping])
     map.compute_triangles()
     # map.plot_triangles()
     map.generate_tree()
-
-    # alph = 0.5
-    # rot = np.array([[np.cos(alph), -np.sin(alph), 0], [np.sin(alph), np.cos(alph), 0], [0., 0., 1.]])
-    rot = np.eye(3)
+    # rot = np.eye(3)271
     # off = np.array([10.5, 5.2, 0.4])
     pose_estimations = []
     pose_gts = []
@@ -839,24 +913,26 @@ if __name__ == '__main__':
     square_error = 0
 
     for i in frames_for_localization:
-        if f_lms[i].shape[0] >= 6:
+        ind = ind_map[i]
+        if f_lms[ind].shape[0] >= MIN_INLIER:
             # Transform frames back into "camera frame" for query.
-            transformation, query_inliers = map.query_frame(np.dot(rot, f_lms[i].T).T - poses[i].reshape(1, 3), f_labels[i])
+            transformation, query_inliers = map.query_frame(np.dot(get_random_rot(), (f_lms[ind] - poses[ind].reshape(1, 3)).T).T,
+                                                            f_labels[ind])
             if transformation is None:
                 pose_estimations.append(None)
             else:
                 pose_estimations.append(transformation[:3, 3])
                 num_matched += 1
-                square_error += np.linalg.norm(transformation[:3, 3] - poses[i]) ** 2
+                square_error += np.linalg.norm(transformation[:3, 3] - poses[ind]) ** 2
             inliers.append(query_inliers)
         else:
             print("This frame has less than 6 instances - skip.")
             pose_estimations.append(None)
             inliers.append(None)
 
-        frame_lms_loc.append(f_lms[i])
-        frame_labels_loc.append(f_labels[i])
-        pose_gts.append(poses[i])
+        frame_lms_loc.append(f_lms[ind])
+        frame_labels_loc.append(f_labels[ind])
+        pose_gts.append(poses[ind])
 
     print("")
     print("===================================================================")

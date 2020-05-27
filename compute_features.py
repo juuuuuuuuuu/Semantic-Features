@@ -6,23 +6,22 @@ import json
 import math
 import matplotlib.pyplot as plt
 from sklearn import linear_model
-from skimage.measure import LineModelND, ransac
 from operator import itemgetter
 
 from tools import utils
 
-QUANTILE = True
+QUANTILE = False
 FIT_LINE = False
 FIT_BOX = True
-MERGE_BBOXES = 1
+MERGE_BBOXES = False
 
 # Choose number of filter for mergedbbox
-mbboxnr = 2
+mbboxnr = 0
 
 # Choose error for merging bboxes
 inflation = 0.1
 
-num_filt = 3
+num_filt = 1
 
 
 def isOverlapping1D(xmin1, xmin2, xmax1, xmax2) :
@@ -77,6 +76,10 @@ def fit_line(pcl, class_id):
         d = len(x) *0.2
         error_opt = np.Inf
         inlier_opt = np.array([False]*len(x))
+        y_min = np.array([])
+        y_max = np.array([])
+        x_opt = np.array([])
+        z_opt = np.array([])
         # Subsample minimum number of datapoints to create model 
         subsets = np.random.choice(indices, N)
         for subset in subsets:
@@ -98,17 +101,31 @@ def fit_line(pcl, class_id):
                 if error < error_opt:
                     error_opt = error
                     inlier_opt = inlier_mask
-        x = np.where(inlier_opt, x, np.nan)
-        y = np.where(inlier_opt, y, np.nan)
-        z = np.where(inlier_opt, z, np.nan)
-        
+                    y_min = y[inlier_mask].min()
+                    y_max = y[inlier_mask].max()
+                    x_opt = x[inlier_mask].mean()
+                    z_opt = z[inlier_mask].mean()
+        #x = np.where(inlier_opt, x, np.nan)
+        #y = np.where(inlier_opt, y, np.nan)
+        #z = np.where(inlier_opt, z, np.nan)
+        x = x[inlier_opt]
+        y = y[inlier_opt]
+        z = z[inlier_opt]
+        # if x_opt.size > 0:
+        #     x = np.array([x_opt, x_opt])
+        #     z = np.array([z_opt, z_opt])
+        #     y = np.array([y_min, y_max])
+        # else:
+        #     x = x_opt
+        #     y = y_min
+        #     z = z_opt
         return x, y, z
     else:
         return x, y, z
 
 
 def fit_box(pcl, class_id):
-    """ fits a line to pointclouds, that are labeled as pole"""
+    """ fits a maximally dense box to pointclouds"""
     # camera coordinates
     x, y, z = pcl
     if class_id == 10:
@@ -157,10 +174,12 @@ def fit_box(pcl, class_id):
         if max(density) > density_opt:
             density_opt = max(density)
             inlier_opt = inlier_sample
-
-    x = np.where(inlier_opt, x, np.nan)
-    y = np.where(inlier_opt, y, np.nan)
-    z = np.where(inlier_opt, z, np.nan)
+    x = x[inlier_opt]
+    y = y[inlier_opt]
+    z = z[inlier_opt]
+    #x = np.where(inlier_opt, x, np.nan)
+    #y = np.where(inlier_opt, y, np.nan)
+    #z = np.where(inlier_opt, z, np.nan)
     return x, y, z
 
 def merge_pole(pcls, bboxs, classes_list):
@@ -286,11 +305,14 @@ if __name__ == '__main__':
         transforms = []
         classes_list = []
 
+    tot_pixels = 0
+    pixel_per_class = np.zeros((17,))
+
     for n, data in enumerate(all_data_sort):
-        Only processing half of the images
-        if n % 2 == 0:
-           print("Skip processing frame " + data['image_id'] + '.')
-           continue
+        # Only processing half of the images
+        if n > len(all_data_sort)*0.5:
+            print("Stop at frame " + data['image_id'] + '.')
+            break
 
         frame_id = int(data['image_id'])
         print("Processing frame " + data['image_id'] + '.')
@@ -307,15 +329,34 @@ if __name__ == '__main__':
         velo = dataset.get_velo(frame_id)
         depth_image = utils.pcl_to_image(velo[:, :3], dataset.calib.T_cam2_velo,
                                          P_cam2, (mask_image.shape[0], mask_image.shape[1]))
-        depth_image[:100, :] = depth_image_stereo[:100, :]
+
+        # Calculate the density of lidar points.
+        kernel = np.ones((7, 7))
+        mask = np.where(np.isnan(depth_image), 0., 1.)
+        count_before = np.sum(mask)
+        mask = cv2.dilate(mask, kernel)
+        count_after = np.sum(mask)
+        lidar_density = count_before / count_after
+        # print("Lidar density: {}".format(lidar_density))
+
+        stereo_sample = np.where(np.random.sample(depth_image_stereo.shape) < lidar_density, depth_image_stereo, np.nan)
+        depth_image[np.logical_not(mask)] = stereo_sample[np.logical_not(mask)]
+
+        # plt.imshow(np.where(np.isnan(depth_image), 0., depth_image))
+        # plt.show()
+        # exit()
         
         # Create structuring element for erosion
-        kernel = np.ones((1, 1), np.uint8) 
+        kernel = np.ones((1, 1), np.uint8)
+
+        tot_pixels += mask_image.shape[0] * mask_image.shape[1]
 
         class_ids = data['classes']
         for i in range(len(class_ids)):
-            mask_i = cv2.erode(np.array(mask_image == i + 1, dtype=np.uint8), kernel)
+            instance_mask = np.array(mask_image == i + 1, dtype=np.uint8)
+            mask_i = cv2.erode(instance_mask, kernel)
             mask = np.where(np.logical_and(mask_i, np.logical_not(np.isnan(depth_image))))
+            pixel_per_class[class_ids[i]] += np.sum(instance_mask)
 
             u = []
             v = []
@@ -336,7 +377,10 @@ if __name__ == '__main__':
                 u, v, z = expand_concat(u, v, z, u[:,1], v[:,1], z[:,1])
 
             if FIT_BOX:
-                u, v, z = expand_concat(u, v, z, u[:,1], v[:,1], z[:,1])
+                u = np.expand_dims(u, axis=1)
+                v = np.expand_dims(v, axis=1)
+                z = np.expand_dims(z, axis=1)
+                #u, v, z = expand_concat(u, v, z, u[:,1], v[:,1], z[:,1])
 
             point_cloud = np.zeros((4, np.size(z,0), num_filt))
             for j in range(z.shape[0]):
@@ -348,8 +392,10 @@ if __name__ == '__main__':
             if FIT_LINE:
                 point_cloud[0:3, :, -2] = fit_line(point_cloud[0:3,:, 0], class_ids[i])
             if FIT_BOX:
-                point_cloud[0:3, :, -1] = fit_box(point_cloud[0:3,:, 0], class_ids[i])
-
+                p_res = fit_box(point_cloud[0:3, :, 0], class_ids[i])
+                point_cloud = np.ones((4, np.size(p_res[0], 0), num_filt))
+                if p_res[0].size > 0:
+                    point_cloud[0:3, :, -1] = p_res
             point_cloud = point_cloud.reshape((4, -1))
             transform = T_w0_w.dot(dataset.poses[frame_id].dot(T_cam0_cam2))
 
@@ -372,6 +418,18 @@ if __name__ == '__main__':
             np.save(bbox_path, bbox, allow_pickle=False)
             results.append([frame_id, i, class_ids[i], pcl_path, bbox_path, transform[:3, 3]])
 
+    detection_probabilities = pixel_per_class / tot_pixels
+    detection_probabilities[0] = 1. - np.sum(detection_probabilities)
+    print("Probabilities:")
+    for i in range(pixel_per_class.shape[0]):
+        print("Class {}:".format(i))
+        print("Probability: {}".format(detection_probabilities[i]))
+
+    np.save("detection_probabilities", detection_probabilities)
+
+    if MERGE_BBOXES:
+
+        npbboxes = np.asarray(bboxes)
 
 
 
@@ -434,6 +492,11 @@ if __name__ == '__main__':
                     merge_pole(pcls, npbboxes)
 
 
+                con = np.concatenate([np.min(minoverlappingbboxes, axis=1), np.max(maxoverlappingbboxes, axis=1)],
+                                         axis=1)
+                mergedbboxes.append(con)
+                blacklist_add = np.where(index[i, :] == 1)[0]
+                blacklist = np.unique(np.concatenate((blacklist, blacklist_add), 0))
 
         print(len(mergedbboxes))
         # Save pcls and mergedbboxes
