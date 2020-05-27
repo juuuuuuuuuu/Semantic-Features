@@ -17,13 +17,18 @@ def get_gt_velocities(poses):
     return linear_velocities, angular_velocities
 
 
-def get_gt_velocities_vehicle(poses):
-    linear_velocities = []
-    angular_velocities = []
+def get_gt_velocities_vehicle(poses, std_v, std_w):
+    linear_velocities = [np.zeros((3,))]
+    angular_velocities = [np.zeros((3,))]
     for i in range(len(poses) - 1):
-        linear_velocities.append(
-            np.linalg.inv(poses[i][:3, :3]).dot(poses[i + 1][:3, 3] - poses[i][:3, 3]))
+        v_ = np.linalg.inv(poses[i][:3, :3]).dot(poses[i + 1][:3, 3] - poses[i][:3, 3])
+        v_noise = np.random.normal(0., std_v, 2)
+        v_[0] += v_noise[0]
+        v_[2] += v_noise[1]
+        linear_velocities.append(v_)
         w_ = get_delta_rot(poses[i][:3, :3], poses[i + 1][:3, :3])
+        w_noise = np.random.normal(0., std_w, 1)
+        w_[1] += w_noise
         angular_velocities.append(w_)
 
     return linear_velocities, angular_velocities

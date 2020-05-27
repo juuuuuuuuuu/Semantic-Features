@@ -373,7 +373,7 @@ def load_lines(path):
 if __name__ == '__main__':
     path = "results/_results.txt"
 
-    poses, pcls, bbox, labels, frame_ids, mergedbboxes, class_id = load_data(path, 1300)
+    poses, pcls, bbox, labels, frame_ids, mergedbboxes, class_id = load_data(path, 1500)
 
     particles = np.load("particle_poses.npy")
 

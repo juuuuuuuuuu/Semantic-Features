@@ -64,7 +64,7 @@ class Particle_Filter():
     def __init__(self, N, std_w, std_v):
         self.N = N
         self.dt = 1/20
-        self.max_vis = 30.0
+        self.max_vis = 40.0
         self.std_w = std_w
         self.std_v = std_v
         # fraction of particles to project onto road
@@ -163,14 +163,22 @@ class Particle_Filter():
             return instances_to_classes[int(x)]
         cnn_pmf_map = lambda x: self.cnn_pmf[x]
         class_marginal_map = lambda x: self.class_marginal[x]
+        image_id_ = image_id
         image_id = "L{:06d}.png".format(image_id)
 
         print(image_id)
         instance_im = cv2.imread(os.path.join(self.instances_path, '{}'.format(image_id)), cv2.IMREAD_GRAYSCALE)
+        rescale_factor = 5
+        instance_im = cv2.resize(instance_im, (int(instance_im.shape[1] / rescale_factor),
+                                               int(instance_im.shape[0] / rescale_factor)),
+                                 cv2.INTER_NEAREST)
         weights = np.zeros(self.N)
+        num_projections = []
+        pred_images = []
         for i in range(self.N):
             local_map = []
             feat = []
+            means = []
             for j, u in enumerate(U):
                 if u[0:3, :, 0].size > 0:
                     coord_mean = u[0:3, :, 0].mean(axis=1)
@@ -178,46 +186,93 @@ class Particle_Filter():
                     dist = np.linalg.norm(coord_mean - particles[i][0:3, 3])
                     if dist < self.max_vis:
                         local_map.append(u[0:3, :, 0].T)
+                        means.append(coord_mean)
                         feat.append(D[j])
-
-            depth_image, label_image = utils.pcls_to_image_labels(local_map, feat, particles[i], self.Kmat, (370, 1226))
+            intrinsics = self.Kmat.copy()
+            # print(self.Kmat)
+            intrinsics[:2, :3] = intrinsics[:2, :3] / rescale_factor
+            # print(intrinsics)
+            depth_image, label_image = utils.pcls_to_image_labels(local_map, means, feat, particles[i], intrinsics,
+                                                                  instance_im.shape)
+            pred_images.append(label_image)
+            # label_image, _ = utils.pcls_to_image_labels_with_occlusion(local_map, means, feat, particles[i], self.Kmat,
+            #                                                            (instance_im.shape[0], instance_im.shape[1]),
+            #                                                            0.2, 100.)
             im_prob = 1
-
-            # f, ax = plt.subplots(2, 1, figsize=(15, 5))
-            # figure_for_jo = label_image.copy()
-            # figure_for_jo[np.isnan()]
-            # ax[0].imshow(np.where(np.isnan(label_image), 0., label_image * 10.))
-            # ax[1].imshow(instance_im * 10.)
-            # plt.show()
 
             #get a boolean mask of all pixels that are matched with the map
             proj_mask = np.where(~np.isnan(label_image), True, False)
             map_classes = list(map(int, label_image[proj_mask]))
             pred_image = instance_im[proj_mask]
             pred_image = np.array(list(map(instances_to_classes_map, pred_image)))
-            detect_prob = np.array(list(map(cnn_pmf_map, zip(map_classes, pred_image)))) * 0.9 + 0.1
-            cumm = np.cumsum(detect_prob)
-            if len(cumm) > 0:
+            num_px = pred_image.shape[0]
+            num_projections.append(num_px)
+            # print("Num landmarks in image: {}, number of map projections: {}".format(len(local_map), num_px))
+            num_px = min(500, num_px)
+            s = 3.
+            if num_px > 0:
+                detect_prob = (np.array(list(map(cnn_pmf_map, zip(map_classes, pred_image)))) * 0.9 + 0.1) ** (s / num_px)
+                cumm = np.cumprod(detect_prob)
                 im_prob = cumm[-1]
-                im_prob = im_prob / np.cumsum(np.array(list(map(class_marginal_map, pred_image))) * 0.1)[-1]
+                im_prob = im_prob / np.cumprod((np.array(list(map(class_marginal_map, pred_image))) * 0.1) **
+                                               (s / num_px))[-1]
             else:
-                im_prob = 1e-100
-            # for u in range(1226):
-            #     for v in range(370):
-            #         if not np.isnan(label_image[v, u]):
-            #             #print(self.cnn_pmf[int(label_image[v, u]), instance_im[v, u]])
-            #             if instance_im[v, u]:
-            #                 pred_label = instances_to_classes[instance_im[v, u]]
-            #             else:
-            #                 pred_label = 0
-            #             print("class marginal: {}, label: {}".format(self.class_marginal[pred_label], pred_label))
-            #             im_prob = im_prob * (self.cnn_pmf[int(label_image[v, u]), pred_label] * 0.9 + im_prob * 0.1)/self.class_marginal[pred_label]*0.1
-            #             print(im_prob)
+                im_prob = 1e-300
 
-            weights[i] = im_prob
+            weights[i] *= im_prob
+
+        max_weight = np.argmax(weights)
+        max_image = pred_images[int(max_weight)]
+        # max_image = pred_images[0]
+        # Take a screenshot of the particle vision.
+        print("Max likely number of map projections: {}".format(num_projections[int(max_weight)]))
+        if True:
+            import imageio
+            # f, ax = plt.subplots(2, 1, figsize=(15, 5))
+            figure_for_jo = np.zeros((max_image.shape[0], max_image.shape[1], 3))
+            #figure_for_jo = max_imgae
+                # np.array(imageio.imread(
+                # "content/kitti_dataset/dataset/sequences/08/image_2/{:06d}.png".format(image_id_))) / 255. / 3.
+            print(figure_for_jo.shape)
+            figure_for_jo_2 = np.zeros((max_image.shape[0], max_image.shape[1], 3))
+            colors = np.zeros((17, 3))
+            for k in range(17):
+                np.random.seed(k)
+                rgb = np.random.randint(255, size=(1, 3)) / 255.0
+                colors[k, :] = rgb
+
+            for k in range(max_image.shape[0]):
+                for j in range(max_image.shape[1]):
+                    label = max_image[k, j]
+                    if not np.isnan(label):
+                        label = int(label)
+                        figure_for_jo[k, j, :] = colors[label, :]
+
+            for k in range(instance_im.shape[0]):
+                for j in range(instance_im.shape[1]):
+                    label = instance_im[k, j]
+                    if not np.isnan(label) and not label == 0:
+                        label = int(label)
+                        figure_for_jo_2[k, j, :] = colors[instances_to_classes_map(label), :]
+
+            plt.close()
+            f, ax = plt.subplots(2, 1, figsize=(15, 5))
+            ax[0].imshow(figure_for_jo)
+            # plt.pause(0.001)
+            # plt.show(block=False)
+            ax[1].imshow(figure_for_jo_2)
+            plt.pause(0.001)
+            # plt.show(block=False)
+            print("yo")
+            # imageio.imwrite("figure_for_jo.png", figure_for_jo)
+            # imageio.imwrite("figure_for_jo_2.png", figure_for_jo_2)
+            # exit()
+
         return weights
 
     def run(self, mapping_indices, localization_indices):
+        plt.ion()
+        plt.show()
 
         # Kmat = np.concatenate((Kmat, np.array([0, 0, 0, 1]).reshape(4,1)), axis=1)
 
@@ -246,7 +301,7 @@ class Particle_Filter():
         for i in range(N):
             particles[i] = localization_poses[0]
         # v, w = get_gt_velocities(localization_poses)
-        v, w = velocity_measurement.get_gt_velocities_vehicle(localization_poses)
+        v, w = velocity_measurement.get_gt_velocities_vehicle(localization_poses, std_v=0.2, std_w=0.02)
         for time, image_id in enumerate(localization_indices):
             # pose = T_w0_w.dot(dataset.poses[image_id].dot(T_cam0_cam2))
 
@@ -276,10 +331,11 @@ class Particle_Filter():
                 particles[i][0:3, 3] = proj
 
             # calculate weights with measurement update
-            weights = self.measurement_update(image_id, particles, U, D)
+            # weights = self.measurement_update(image_id, particles, U, D)
+            self.measurement_update(image_id, particles, U, D)
             # normalize
             sum_weights = weights.sum()
-            weights = weights/sum_weights
+            weights = weights / sum_weights
             # resample
             particle_ind = list(range(N))
             particle_ind = np.random.choice(particle_ind, p=weights, size=N)
@@ -288,15 +344,19 @@ class Particle_Filter():
             #     new_particles[i] = particles[particle_ind[i]]
             # particles = new_particles
             particles = particles[particle_ind, :, :]
+            weights = weights[particle_ind]
             particle_poses_all.append(particle_poses)
 
         np.save(measurement_model_path, particle_poses_all, allow_pickle=False)
+
+
 if __name__ == '__main__':
-    filter = Particle_Filter(30, std_w=0.02, std_v=0.2)
+    filter = Particle_Filter(200, std_w=0.01, std_v=0.1)
     # 70 to 250
     mapping_indices = list(range(70, 250))
     # 1580 to 1850
     localization_indices = list(range(1580, 1850))
+    # localization_indices = list(range(0, 250))
     filter.run(mapping_indices, localization_indices)
 
 
