@@ -1,6 +1,21 @@
 # Semantic-Features
 Semantic Features for Localisation
 
+# Final Report:
+First Draft until: 05.06. 11 Uhr
+1. Abstract: zum Schluss
+2. Introduction/Motivation/Related work: Berk
+3. Problem Statement: Berk
+4. Implementation
+    1. Detector: Julius
+    2. Map: Berk
+    3. Geometric Approach: Felix
+    4. Particle Filter: Johannes
+        1. Models
+        2. Parameters..
+5. Results: ?
+6. Outlook/Discussion: ?
+
 # Tasks (due until Thursday):
 Goal: Run KITTI dataset and visualize<br>
 

@@ -602,7 +602,6 @@ class Map:
             (2, 1, 0): (0, 2, 1)
         }
 
-        # Maximum deviation from the query triangle.
         max_dist = 1.0
 
         maximum_length = 0
@@ -702,11 +701,9 @@ class Map:
 
         # Number of best matches to be considered in the query.
         match_count = frame_landmarks.shape[0] * 2
-        # Iterate until enough matches are found to create a unique proposal of 4 different frame landmarks.
-        while np.unique(matches[:match_count, 0]).shape[0] < 4:
-            match_count += 1
-            if match_count >= matches.shape[0]:
-                return None, None
+
+        # Minimum number of inliers for proposal.
+        min_inlier_support = max(6, int(frame_landmarks.shape[0] / 2))
 
         # Maximum amount of deviation from actual positions.
         max_error = 2.0
@@ -715,9 +712,8 @@ class Map:
         # under the assumption that the probability to find a inlier starting triangle is e = 0.5
         # e = p_triangle_exists * p_correct_heap = 0.5 * 0.5
         p_ = 0.99
-        e_ = 0.5 * 0.9
-        # max_iterations = int(np.log(1 - p_) / np.log(1 - (1 - e_)**4))
-        max_iterations = 1000
+        e_ = 0.5 * 0.25 * 0.1
+        max_iterations = int(np.log(1 - p_) / np.log(1 - (e_)))
 
         print("Starting RANSAC, max iterations is {}.".format(max_iterations))
         num_iterations = 0
@@ -732,12 +728,22 @@ class Map:
 
             # Find a starting attempt where all frame indices are different (otherwise we don't get a triangle):
             # Hopefully this will never be an endless loop...
-            n_proposal_points = 4
-            attempt = random.sample(range(match_count), n_proposal_points)
-            while np.unique(matches[attempt, 0]).shape[0] < n_proposal_points:
-                attempt = random.sample(range(match_count), n_proposal_points)
+            attempt = random.sample(range(match_count), 3)
+            while np.unique(matches[attempt, 0]).shape[0] < 3:
+                attempt = random.sample(range(match_count), 3)
 
-            num_inliers, inliers, proposal_T = find_inliers(matched_frame_lms, matched_map_lms, attempt, max_error)
+            # print(matched_frame_lms[attempt, :])
+            proposal_T = triangle_transform(matched_frame_lms[attempt, :].T, matched_map_lms[attempt, :].T)
+
+            transformed_frame_lms = np.dot(proposal_T, np.vstack((matched_frame_lms.T, np.ones((1, match_count))))).T[:, :3]
+            difference = np.linalg.norm(transformed_frame_lms - matched_map_lms, axis=-1)
+
+            # print(transformed_frame_lms)
+            # print(matched_map_lms)
+
+            # print(difference)
+            inliers = np.where(difference < max_error)
+            num_inliers = inliers[0].shape[0]
 
             if num_inliers >= min_inlier_support:
                 # Iteratively find the best transformation.
@@ -754,30 +760,13 @@ class Map:
                         final_T = previous_T
                         inliers = previous_inliers
                 print("Finish RANSAC after {} iterations with {} inliers.".format(num_iterations, num_inliers))
-                return final_T, matches[inliers, :]
+                return final_T, matches[inliers[0], :]
 
             if num_iterations >= max_iterations:
                 print("Not enough inliers found. Exiting.")
                 break
 
         return None, None
-
-
-def find_inliers(frame_lms, map_lms, attempt, max_error):
-    proposal_T = triangle_transform(frame_lms[attempt, :].T, map_lms[attempt, :].T)
-
-    if proposal_T is not None:
-        transformed_frame_lms = np.dot(proposal_T,
-                                       np.vstack((frame_lms.T, np.ones((1, frame_lms.shape[0]))))).T[:, :3]
-        difference = np.linalg.norm(transformed_frame_lms - map_lms, axis=-1)
-
-        match_inliers = np.where(difference < max_error)[0]
-        num_inliers = match_inliers.shape[0]
-    else:
-        match_inliers = None
-        num_inliers = 0
-
-    return num_inliers, match_inliers, proposal_T
 
 
 def triangle_transform(a, b):
@@ -795,22 +784,19 @@ def triangle_transform(a, b):
 
     if np.isnan(R).any() or np.isinf(R).any():
         print("Warning, R has inf or nan values.")
-        return None
+        return np.eye(4)
 
     # Make R orthogonal (rotation matrix, not scale)
     try:
-        # R = R / np.linalg.norm(R, axis=0, keepdims=True)
-        R = fix_rotation(R)
-
-        # R = scipy.linalg.sqrtm(R.T.dot(R))
+        R = scipy.linalg.sqrtm(R.T.dot(R))
         if np.isnan(R).any() or np.isinf(R).any():
             print("Warning, R has inf or nan values.")
-            return None
+            return np.eye(4)
 
-        # R = R.dot(scipy.linalg.inv(R))
+        R = R.dot(scipy.linalg.inv(R))
     except scipy.linalg.LinAlgError:
         print("Warning, singular matrix.")
-        return None
+        return np.eye(4)
 
     p_w_f = b_mean + np.dot(R, -a_mean)
 
@@ -922,7 +908,6 @@ if __name__ == '__main__':
     inliers = []
     frame_lms_loc = []
     frame_labels_loc = []
-    transformations = []
 
     num_matched = 0
     square_error = 0
@@ -937,7 +922,6 @@ if __name__ == '__main__':
                 pose_estimations.append(None)
             else:
                 pose_estimations.append(transformation[:3, 3])
-                transformations.append(transformation)
                 num_matched += 1
                 square_error += np.linalg.norm(transformation[:3, 3] - poses[ind]) ** 2
             inliers.append(query_inliers)
@@ -958,12 +942,6 @@ if __name__ == '__main__':
     print("")
     print("===================================================================")
     print("")
-
-    #for trafo in transformations:
-    #    print("Trafo:")
-    #    print(trafo)
-    #    print("Rot:")
-    #    print(rot)
 
     map.render(frame_lms_loc, frame_labels_loc, pose_estimations, pose_gts, inliers)
     # print(rot)
