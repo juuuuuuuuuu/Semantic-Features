@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 class LandmarkRenderer:
     def __init__(self, poses, landmarks, landmark_pcls, landmark_bbox, labels, frame_ids,
-                 label_colors, mbboxes, class_id, particles, other_particles):
+                 label_colors, mbboxes, class_id, particles, other_particles, gt_poses):
         self.poses = poses
         self.landmarks = landmarks
         self.landmark_pcls = landmark_pcls
@@ -32,6 +32,7 @@ class LandmarkRenderer:
         self.class_id = class_id
         self.particles = particles
         self.other_particels = other_particles
+        self.gt_poses = gt_poses
         self.particle_pointer = 0
 
         self.landmark_render_objects = render_pcls(self.poses,
@@ -78,7 +79,9 @@ class LandmarkRenderer:
 
         vis.add_geometry(self.ground_grid)
 
-        vis.add_geometry(render_particles(self.particles[self.particle_pointer, :, :]))
+        vis.add_geometry(render_particles(self.particles[self.particle_pointer, :, :], [1., 0., 0.]))
+        vis.add_geometry(render_particles(self.other_particels[self.particle_pointer, :, :], [0., 0., 1.]))
+        vis.add_geometry(render_box(self.gt_poses[self.particle_pointer, :]))
 
         vis.run()
         vis.destroy_window()
@@ -95,6 +98,7 @@ class LandmarkRenderer:
 
         vis.add_geometry(render_particles(self.particles[self.particle_pointer, :, :], [1., 0., 0.]))
         vis.add_geometry(render_particles(self.other_particels[self.particle_pointer, :, :], [0., 0., 1.]))
+        vis.add_geometry(render_box(self.gt_poses[self.particle_pointer, :]))
 
         if self.render_boxes:
             if self.render_single_frame:
@@ -224,6 +228,7 @@ def render_landmarks(landmarks, labels, label_colors):
 
     return boxes
 
+
 def render_mbboxes_func(label_colors, mbboxes, class_id):
     merged_boxes = []
     for i, mbbox in enumerate(mbboxes):
@@ -237,6 +242,14 @@ def render_particles(particles, color):
     pcl = o3d.geometry.PointCloud(points=o3d.utility.Vector3dVector(particles))
     pcl.colors = o3d.utility.Vector3dVector([color for j in range(particles.shape[0])])
     return pcl
+
+
+def render_box(pose):
+    size = 0.5
+    size_vec = np.array([size/2., size/2., size/2.])
+    box = o3d.geometry.AxisAlignedBoundingBox(min_bound=pose-size_vec, max_bound=pose+size_vec)
+    box.color = [1.0, 1.0, 1.0]
+    return box
 
 
 def render_pcls(poses, pcls, bbox, labels, label_colors, indices):
@@ -379,6 +392,9 @@ if __name__ == '__main__':
 
     particles = np.load("particle_poses.npy")
     other_particles = np.load("particle_poses_wo_mm.npy")
+    gt_poses = np.load("gt_poses.npy")
+    # gt_poses = np.zeros((particles.shape[0], 3))
+
 
     #####################################################################
     # PCL projection example:
@@ -413,5 +429,5 @@ if __name__ == '__main__':
 
     print("Number of landmarks is: {}".format(labels.shape[0]))
     renderer = LandmarkRenderer(poses, None, pcls, bbox, labels, frame_ids, get_colors(), mergedbboxes, class_id,
-                                particles, other_particles)
+                                particles, other_particles, gt_poses)
     renderer.run()
