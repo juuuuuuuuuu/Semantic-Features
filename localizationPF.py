@@ -421,7 +421,8 @@ class Particle_Filter():
             particle_ind = np.random.choice(particle_ind, p=weights, size=N)
             particles = particles[particle_ind, :, :]
             weights = weights[particle_ind]
-            
+            particle_ind = np.random.choice(particle_ind, size=N)
+            particles_wo_mm = particles_wo_mm[particle_ind, :, :]
           
             particle_poses_all.append(particle_poses)
             particle_poses_all_wo_mm.append(particle_poses_wo_mm)
