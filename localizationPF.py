@@ -65,7 +65,7 @@ class Particle_Filter():
     def __init__(self, N, std_w, std_v, gamma, bias_w_std):
         self.N = N
         self.dt = 1/20
-        self.max_vis = 40.0
+        self.max_vis = 60.0
         self.std_w = std_w
         self.std_v = std_v
         self.bias_w_std = bias_w_std
@@ -433,7 +433,7 @@ class Particle_Filter():
 
 
 if __name__ == '__main__':
-    filter = Particle_Filter(10, std_w=2.5e-4**0.5, std_v=4e-3**0.5, gamma=1e-5, bias_w_std=0.9e-9**0.5)
+    filter = Particle_Filter(50, std_w=2.5e-4**0.5, std_v=4e-3**0.5, gamma=1e-5, bias_w_std=0.9e-9**0.5)
     # 70 to 250
     mapping_indices = list(range(70, 250))
     # 1580 to 1850

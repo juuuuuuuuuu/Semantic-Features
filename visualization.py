@@ -395,6 +395,16 @@ if __name__ == '__main__':
     gt_poses = np.load("gt_poses.npy")
     # gt_poses = np.zeros((particles.shape[0], 3))
 
+    mean_poses = np.mean(particles, axis=1)
+    mean_poses_no_mm = np.mean(other_particles, axis=1)
+
+    errors = np.linalg.norm(mean_poses - gt_poses, axis=-1)
+    errors_no_m = np.linalg.norm(mean_poses_no_mm - gt_poses, axis=-1)
+
+    f, ax = plt.subplots(2, 1)
+    ax[0].hist(errors, np.arange(60) / 10.)
+    ax[1].hist(errors_no_m, np.arange(60) / 10.)
+    plt.show()
 
     #####################################################################
     # PCL projection example:
