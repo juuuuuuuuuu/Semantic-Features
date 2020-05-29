@@ -219,7 +219,7 @@ class Particle_Filter():
             #                                                            0.2, 100.)
             im_prob = 1
 
-            if False:
+            if True:
                 # get a boolean mask of all pixels that are matched with the map
                 proj_mask = np.where(~np.isnan(label_image), True, False)
                 map_classes = list(map(int, label_image[proj_mask]))
@@ -235,8 +235,7 @@ class Particle_Filter():
                 if num_px > 0:
                     # (np.array(list(map(cnn_pmf_map, zip(map_classes, pred_image)))) * 0.9 + 0.1) ** (s / num_px)
                     detect_prob = (np.array(list(map(cnn_pmf_map, zip(map_classes, pred_image)))) /
-                                   np.array(list(map(class_marginal_map, pred_image))) /
-                                   np.array(list(map(class_marginal_map, map_classes)))) ** (s / num_px)
+                                   np.array(list(map(class_marginal_map, pred_image)))) ** (s / num_px)
                     cumm = np.cumprod(detect_prob)
                     im_prob = cumm[-1]
                     # im_prob / np.cumprod((np.array(list(map(class_marginal_map, pred_image))) * 0.1) **
@@ -246,6 +245,7 @@ class Particle_Filter():
                 else:
                     im_prob = 1e-300
                 # im_prob = max(1e-300, num_px)
+                print("Num projections {}, probability {}".format(num_projections[-1], im_prob))
             else:
                 seg_mask = np.where(classes_im != 0, True, False)
                 map_image = np.where(np.isnan(label_image), 0., label_image)
