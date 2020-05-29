@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 class LandmarkRenderer:
     def __init__(self, poses, landmarks, landmark_pcls, landmark_bbox, labels, frame_ids,
-                 label_colors, mbboxes, class_id, particles):
+                 label_colors, mbboxes, class_id, particles, other_particles):
         self.poses = poses
         self.landmarks = landmarks
         self.landmark_pcls = landmark_pcls
@@ -31,6 +31,7 @@ class LandmarkRenderer:
         self.mbboxes = mbboxes
         self.class_id = class_id
         self.particles = particles
+        self.other_particels = other_particles
         self.particle_pointer = 0
 
         self.landmark_render_objects = render_pcls(self.poses,
@@ -92,7 +93,8 @@ class LandmarkRenderer:
             for mbbox in self.mbboxes_rendered:
                 vis.add_geometry(mbbox)
 
-        vis.add_geometry(render_particles(self.particles[self.particle_pointer, :, :]))
+        vis.add_geometry(render_particles(self.particles[self.particle_pointer, :, :], [1., 0., 0.]))
+        vis.add_geometry(render_particles(self.other_particels[self.particle_pointer, :, :], [0., 0., 1.]))
 
         if self.render_boxes:
             if self.render_single_frame:
@@ -231,9 +233,9 @@ def render_mbboxes_func(label_colors, mbboxes, class_id):
     return merged_boxes
 
 
-def render_particles(particles):
+def render_particles(particles, color):
     pcl = o3d.geometry.PointCloud(points=o3d.utility.Vector3dVector(particles))
-    pcl.colors = o3d.utility.Vector3dVector([[1., 0., 0.] for j in range(particles.shape[0])])
+    pcl.colors = o3d.utility.Vector3dVector([color for j in range(particles.shape[0])])
     return pcl
 
 
@@ -376,6 +378,7 @@ if __name__ == '__main__':
     poses, pcls, bbox, labels, frame_ids, mergedbboxes, class_id = load_data(path, 1500)
 
     particles = np.load("particle_poses.npy")
+    other_particles = np.load("particle_poses_wo_mm.npy")
 
     #####################################################################
     # PCL projection example:
@@ -410,5 +413,5 @@ if __name__ == '__main__':
 
     print("Number of landmarks is: {}".format(labels.shape[0]))
     renderer = LandmarkRenderer(poses, None, pcls, bbox, labels, frame_ids, get_colors(), mergedbboxes, class_id,
-                                particles)
+                                particles, other_particles)
     renderer.run()
