@@ -379,7 +379,7 @@ class Particle_Filter():
         # loop trough all measurements
         loc_pose_ind = localization_indices 
         localization_poses = [self.T_w0_w.dot(self.dataset.poses[image_id].dot(self.T_cam0_cam2)) for image_id in loc_pose_ind]
-        np.save('gt_poses.npy', np.array(localization_poses), allow_pickle=False)
+        np.save('gt_poses.npy', np.array([p[:3, 3] for p in localization_poses]), allow_pickle=False)
         for i in range(N):
             particles[i] = localization_poses[0]
             particles_wo_mm[i] = localization_poses[0]
