@@ -8,6 +8,7 @@ import pykitti
 import scipy.spatial.transform.rotation as r
 from tools import utils
 import velocity_measurement
+import optical_flow
 import json
 from operator import itemgetter
 
@@ -102,14 +103,18 @@ class Particle_Filter():
         for x in sorted(all_data, key=itemgetter('image_id')):
             self.all_data_sort.append(x)
 
+        self.rescale_factor = 5
+        self.prob_mask = np.zeros((int(370 / self.rescale_factor), int(1226 / self.rescale_factor), 17))
+        self.previous_image = None
+
         print(self.class_marginal)
+
     def pr_delt(self, x, U):
         dist = L2_norm(x, U)
         if dist > self.max_dist:
             return 0.0
         else:
             return self.rho * (1 - self.P0)
-
 
     def load_frame(self, indices):
         results = pd.read_csv(self.results_path, header=None, sep=' ')
@@ -127,7 +132,6 @@ class Particle_Filter():
         image_ids = np.unique(image_ids)
         return U, D, image_ids
 
-
     def motion_update(self, w_t, v_t):
         q_w = np.random.normal(0.0, self.std_w, size=1)
         q_w = np.array([0.0, 0.0, q_w])
@@ -138,7 +142,6 @@ class Particle_Filter():
         twist[0:3, 3] = v_t + q_v
         twist[3, 3] = 1.0
         return twist
-
 
     def proj_trajectory(self, sorted_indices, poses, position):
         p1 = poses[sorted_indices[0]][0:3, 3]
@@ -152,7 +155,6 @@ class Particle_Filter():
         else:
             proj = proj_len / (s.dot(s)) * s + p1
         return proj
-
 
     def measurement_update(self, image_id, particles, U, D):
         """ takes an image_id as measurement, as well as the particles, and 3D-map (U, D)
@@ -172,9 +174,26 @@ class Particle_Filter():
         instance_im = cv2.resize(instance_im, (int(instance_im.shape[1] / rescale_factor),
                                                int(instance_im.shape[0] / rescale_factor)),
                                  cv2.INTER_NEAREST)
+
+        classes_im = np.vectorize(instances_to_classes_map)(instance_im)
+
+        next_image = cv2.imread("content/kitti_dataset/dataset/sequences/08/image_2/{:06d}.png"
+                                .format(image_id_), cv2.IMREAD_UNCHANGED)
+        next_image = cv2.cvtColor(next_image, cv2.COLOR_BGR2GRAY)
+        if self.previous_image is None:
+            self.previous_image = next_image
+
+        flow = optical_flow.calculate_flow(self.previous_image, next_image)
+        flow = cv2.resize(flow, (int(flow.shape[1] / self.rescale_factor),
+                                 int(flow.shape[0] / self.rescale_factor)),
+                          cv2.INTER_LINEAR) / self.rescale_factor
+        self.previous_image = next_image
+        self.prob_mask = optical_flow.update_mask(self.prob_mask, classes_im, flow, 0.6)
+
         weights = np.zeros(self.N)
         num_projections = []
         pred_images = []
+        proj_masks = []
         for i in range(self.N):
             local_map = []
             feat = []
@@ -200,32 +219,65 @@ class Particle_Filter():
             #                                                            0.2, 100.)
             im_prob = 1
 
-            #get a boolean mask of all pixels that are matched with the map
-            proj_mask = np.where(~np.isnan(label_image), True, False)
-            map_classes = list(map(int, label_image[proj_mask]))
-            pred_image = instance_im[proj_mask]
-            pred_image = np.array(list(map(instances_to_classes_map, pred_image)))
-            num_px = pred_image.shape[0]
-            num_projections.append(num_px)
-            # print("Num landmarks in image: {}, number of map projections: {}".format(len(local_map), num_px))
-            num_px = min(500, num_px)
-            s = 3.
-            if num_px > 0:
-                detect_prob = (np.array(list(map(cnn_pmf_map, zip(map_classes, pred_image)))) * 0.9 + 0.1) ** (s / num_px)
-                cumm = np.cumprod(detect_prob)
-                im_prob = cumm[-1]
-                im_prob = im_prob / np.cumprod((np.array(list(map(class_marginal_map, pred_image))) * 0.1) **
-                                               (s / num_px))[-1]
+            if False:
+                # get a boolean mask of all pixels that are matched with the map
+                proj_mask = np.where(~np.isnan(label_image), True, False)
+                map_classes = list(map(int, label_image[proj_mask]))
+                pred_image = instance_im[proj_mask]
+                pred_image = np.array(list(map(instances_to_classes_map, pred_image)))
+                num_px = pred_image.shape[0]
+                # num_projections.append(num_px)
+                num_projections.append(np.sum(np.logical_and(proj_mask, instance_im != 0)))
+                proj_masks.append(np.logical_and(proj_mask, instance_im != 0))
+                # print("Num landmarks in image: {}, number of map projections: {}".format(len(local_map), num_px))
+                # num_px = min(1000, num_px)
+                s = 2.
+                if num_px > 0:
+                    # (np.array(list(map(cnn_pmf_map, zip(map_classes, pred_image)))) * 0.9 + 0.1) ** (s / num_px)
+                    detect_prob = (np.array(list(map(cnn_pmf_map, zip(map_classes, pred_image)))) /
+                                   np.array(list(map(class_marginal_map, pred_image))) /
+                                   np.array(list(map(class_marginal_map, map_classes)))) ** (s / num_px)
+                    cumm = np.cumprod(detect_prob)
+                    im_prob = cumm[-1]
+                    # im_prob / np.cumprod((np.array(list(map(class_marginal_map, pred_image))) * 0.1) **
+                    # im_prob = im_prob / np.cumprod((np.array(list(map(class_marginal_map, pred_image))) *
+                    #                                 np.array(list(map(class_marginal_map, map_classes)))) **
+                    #                                (s / num_px * 2.))[-1]
+                else:
+                    im_prob = 1e-300
+                # im_prob = max(1e-300, num_px)
             else:
-                im_prob = 1e-300
+                seg_mask = np.where(classes_im != 0, True, False)
+                map_image = np.where(np.isnan(label_image), 0., label_image)
+                map_classes = list(map(int, map_image[seg_mask]))
+                seg_classes = classes_im[seg_mask]
+                num_px = seg_classes.shape[0]
 
-            weights[i] *= im_prob
+                num_projections.append(np.sum(np.logical_and(seg_mask, ~np.isnan(label_image))))
+                # proj_masks.append(np.logical_and(seg_mask, ~np.isnan(label_image)))
+                proj_masks.append(seg_mask)
+
+                s = 1.
+
+                if num_px > 0:
+                    detect_prob = (np.array(list(map(cnn_pmf_map, zip(seg_classes, map_classes)))) /
+                                   np.array(list(map(class_marginal_map, map_classes)))) ** (s / num_px)
+                    im_prob = np.cumprod(detect_prob)[-1]
+                else:
+                    im_prob = 1e-300
+
+                print("Num projections {}, probability {}".format(num_projections[-1], im_prob))
+
+            weights[i] = im_prob
 
         max_weight = np.argmax(weights)
         max_image = pred_images[int(max_weight)]
+        # max_image = pred_images[int(np.argmax(num_projections))]
+        max_proj = proj_masks[int(np.argmax(num_projections))]
         # max_image = pred_images[0]
         # Take a screenshot of the particle vision.
         print("Max likely number of map projections: {}".format(num_projections[int(max_weight)]))
+        print("Most projections: {}".format(max(num_projections)))
         if True:
             import imageio
             # f, ax = plt.subplots(2, 1, figsize=(15, 5))
@@ -260,10 +312,10 @@ class Particle_Filter():
             ax[0].imshow(figure_for_jo)
             # plt.pause(0.001)
             # plt.show(block=False)
-            ax[1].imshow(figure_for_jo_2)
+            ax[1].imshow(max_proj)
+            # ax[1].imshow(optical_flow.visualize_mask(self.prob_mask))
             plt.pause(0.001)
             # plt.show(block=False)
-            print("yo")
             # imageio.imwrite("figure_for_jo.png", figure_for_jo)
             # imageio.imwrite("figure_for_jo_2.png", figure_for_jo_2)
             # exit()
@@ -300,8 +352,8 @@ class Particle_Filter():
         localization_poses = [self.T_w0_w.dot(self.dataset.poses[image_id].dot(self.T_cam0_cam2)) for image_id in loc_pose_ind]
         for i in range(N):
             particles[i] = localization_poses[0]
-        # v, w = get_gt_velocities(localization_poses)
-        v, w = velocity_measurement.get_gt_velocities_vehicle(localization_poses, std_v=0.2, std_w=0.02)
+
+        v, w = velocity_measurement.get_gt_velocities_vehicle(localization_poses, std_v=0.00, std_w=0.000)
         for time, image_id in enumerate(localization_indices):
             # pose = T_w0_w.dot(dataset.poses[image_id].dot(T_cam0_cam2))
 
@@ -315,7 +367,6 @@ class Particle_Filter():
                 q_w = np.array([0.0, q_w, 0.0])
                 q_v = np.random.normal(0.0, self.std_v, size=2)
                 q_v = np.array([q_v[0], 0.0, q_v[1]])
-                # particles[i] = self.motion_update(w_t, v_t).dot(particles[i])
                 particles[i] = velocity_measurement.process_particle(particles[i], v_t, w_t, q_v, q_w)
                 particle_poses[i] = particles[i][0:3, 3]
 
@@ -339,10 +390,6 @@ class Particle_Filter():
             # resample
             particle_ind = list(range(N))
             particle_ind = np.random.choice(particle_ind, p=weights, size=N)
-            # new_particles = particles.copy()
-            # for i in range(N):
-            #     new_particles[i] = particles[particle_ind[i]]
-            # particles = new_particles
             particles = particles[particle_ind, :, :]
             weights = weights[particle_ind]
             particle_poses_all.append(particle_poses)
@@ -351,7 +398,7 @@ class Particle_Filter():
 
 
 if __name__ == '__main__':
-    filter = Particle_Filter(200, std_w=0.01, std_v=0.1)
+    filter = Particle_Filter(200, std_w=0.05, std_v=0.1)
     # 70 to 250
     mapping_indices = list(range(70, 250))
     # 1580 to 1850
