@@ -268,7 +268,7 @@ class Particle_Filter():
                 else:
                     im_prob = 1e-300
                 # im_prob = max(1e-300, num_px)
-                print("Num projections {}, probability {}".format(num_projections[-1], im_prob))
+                # print("Num projections {}, probability {}".format(num_projections[-1], im_prob))
             else:
                 seg_mask = np.where(classes_im != 0, True, False)
                 map_image = np.where(np.isnan(label_image), 0., label_image)
@@ -289,7 +289,7 @@ class Particle_Filter():
                 else:
                     im_prob = 1e-300
 
-                print("Num projections {}, probability {}".format(num_projections[-1], im_prob))
+                # print("Num projections {}, probability {}".format(num_projections[-1], im_prob))
 
             weights[i] = im_prob
 
@@ -359,7 +359,9 @@ class Particle_Filter():
         mapping_poses = [self.T_w0_w.dot(self.dataset.poses[image_id].dot(self.T_cam0_cam2)) for image_id in mapping_indices]
 
         particles = np.zeros((N, 4, 4))
+        particles_wo_mm = np.zeros((N, 4, 4))
         bias_w_old = np.zeros((N, 1))
+        bias_w_old_wo_mm = np.zeros((N, 1))
         weights = np.ones(N) * 1 / N
         # for i in range(N):
             # th = np.pi * np.random.uniform(0, 2)
@@ -370,13 +372,14 @@ class Particle_Filter():
             # particles[i] = mapping_poses[0]
 
         particle_poses_all = []
+        particle_poses_all_wo_mm = []
         measurement_model_path = os.path.join(self.ROOT_DIR, "particle_poses")
         # loop trough all measurements
         loc_pose_ind = localization_indices + [localization_indices[-1]+1]
         localization_poses = [self.T_w0_w.dot(self.dataset.poses[image_id].dot(self.T_cam0_cam2)) for image_id in loc_pose_ind]
         for i in range(N):
             particles[i] = localization_poses[0]
-
+            particles_wo_mm[i] = localization_poses[0]
         v, w = velocity_measurement.get_gt_velocities_vehicle(localization_poses, std_v=4e-3, std_w=2.5e-4, gamma=1e-5, bias_w_std=0.9e-9)
         for time, image_id in enumerate(localization_indices):
             # pose = T_w0_w.dot(dataset.poses[image_id].dot(T_cam0_cam2))
@@ -385,10 +388,13 @@ class Particle_Filter():
             w_t, v_t = w[time], v[time]
             # Motion update
             particle_poses = np.zeros((N, 3))
+            particle_poses_wo_mm = np.zeros((N, 3))
             for i in range(N):
 
                 particles[i], bias_w_old[i] = self.process_particle(particles[i], v_t, w_t, std_v=4e-3, std_w=2.5e-4, gamma_w=1e-5, bias_w_std=0.9e-9, bias_old=bias_w_old[i])
+                particles_wo_mm[i], bias_w_old_wo_mm[i] = self.process_particle(particles_wo_mm[i], v_t, w_t, std_v=4e-3, std_w=2.5e-4, gamma_w=1e-5, bias_w_std=9e-9**0.5, bias_old=bias_w_old_wo_mm[i])
                 particle_poses[i] = particles[i][0:3, 3]
+                particle_poses_wo_mm[i] = particles_wo_mm[i][0:3, 3]
 
             # project particles onto trajectory
             proj_ind = np.random.choice(list(range(N)), int(N * self.alpha))
@@ -401,6 +407,7 @@ class Particle_Filter():
                 # print("particle_position: {}".format(particle_position))
                 particles[i][0:3, 3] = proj
 
+
             # calculate weights with measurement update
             weights = self.measurement_update(image_id, particles, U, D)
             #self.measurement_update(image_id, particles, U, D)
@@ -412,13 +419,17 @@ class Particle_Filter():
             particle_ind = np.random.choice(particle_ind, p=weights, size=N)
             particles = particles[particle_ind, :, :]
             weights = weights[particle_ind]
+            
+          
             particle_poses_all.append(particle_poses)
+            particle_poses_all_wo_mm.append(particle_poses_wo_mm)
 
         np.save(measurement_model_path, particle_poses_all, allow_pickle=False)
+        np.save(measurement_model_path+'_wo_mm', particle_poses_all_wo_mm, allow_pickle=False)
 
 
 if __name__ == '__main__':
-    filter = Particle_Filter(15, std_w=0.05, std_v=0.1)
+    filter = Particle_Filter(10, std_w=0.05, std_v=0.1)
     # 70 to 250
     mapping_indices = list(range(70, 250))
     # 1580 to 1850
