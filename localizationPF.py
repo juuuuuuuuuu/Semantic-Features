@@ -234,7 +234,7 @@ class Particle_Filter():
                 s = 2.
                 if num_px > 0:
                     # (np.array(list(map(cnn_pmf_map, zip(map_classes, pred_image)))) * 0.9 + 0.1) ** (s / num_px)
-                    detect_prob = (np.array(list(map(cnn_pmf_map, zip(map_classes, pred_image)))) /
+                    detect_prob = ((np.array(list(map(cnn_pmf_map, zip(map_classes, pred_image)))) * 0.9 + 0.1) /
                                    np.array(list(map(class_marginal_map, pred_image)))) ** (s / num_px)
                     cumm = np.cumprod(detect_prob)
                     im_prob = cumm[-1]
@@ -278,7 +278,7 @@ class Particle_Filter():
         # Take a screenshot of the particle vision.
         print("Max likely number of map projections: {}".format(num_projections[int(max_weight)]))
         print("Most projections: {}".format(max(num_projections)))
-        if True:
+        if False:
             import imageio
             # f, ax = plt.subplots(2, 1, figsize=(15, 5))
             figure_for_jo = np.zeros((max_image.shape[0], max_image.shape[1], 3))
@@ -382,8 +382,8 @@ class Particle_Filter():
                 particles[i][0:3, 3] = proj
 
             # calculate weights with measurement update
-            # weights = self.measurement_update(image_id, particles, U, D)
-            self.measurement_update(image_id, particles, U, D)
+            weights = self.measurement_update(image_id, particles, U, D)
+            #self.measurement_update(image_id, particles, U, D)
             # normalize
             sum_weights = weights.sum()
             weights = weights / sum_weights
