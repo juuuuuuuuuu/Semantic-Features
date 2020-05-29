@@ -62,12 +62,14 @@ def L2_norm(x, y):
     return ((x - y)**2).sum()**0.5
 
 class Particle_Filter():
-    def __init__(self, N, std_w, std_v):
+    def __init__(self, N, std_w, std_v, gamma, bias_w_std):
         self.N = N
         self.dt = 1/20
         self.max_vis = 40.0
         self.std_w = std_w
         self.std_v = std_v
+        self.bias_w_std = bias_w_std
+        self.gamma = gamma
         # fraction of particles to project onto road
         self.alpha = 0.0
         # probability of detection of a point
@@ -157,13 +159,13 @@ class Particle_Filter():
         return proj
 
 
-    def process_particle(self, pose, rel_v, rel_w, std_v, std_w, gamma_w, bias_w_std, bias_old):
+    def process_particle(self, pose, rel_v, rel_w, std_v, std_w, gamma, bias_w_std, bias_old):
         # Get noise vectors.
 
         q_v = np.random.normal(0.0, std_v, size=2)
         q_v = np.array([q_v[0], 0.0, q_v[1]])
 
-        bias_w = (1-gamma_w)*bias_old + np.random.normal(0., bias_w_std, 1)
+        bias_w = (1-gamma)*bias_old + np.random.normal(0., bias_w_std, 1)
         q_w = np.random.normal(bias_w, std_w, size=1)
         q_w = np.array([0.0, q_w, 0.0])
         
@@ -380,7 +382,7 @@ class Particle_Filter():
         for i in range(N):
             particles[i] = localization_poses[0]
             particles_wo_mm[i] = localization_poses[0]
-        v, w = velocity_measurement.get_gt_velocities_vehicle(localization_poses, std_v=4e-3, std_w=2.5e-4, gamma=1e-5, bias_w_std=0.9e-9)
+        v, w = velocity_measurement.get_gt_velocities_vehicle(localization_poses, std_v=self.std_v, std_w=self.std_w, gamma=self.gamma, bias_w_std=self.bias_w_std)
         for time, image_id in enumerate(localization_indices):
             # pose = T_w0_w.dot(dataset.poses[image_id].dot(T_cam0_cam2))
 
@@ -391,8 +393,8 @@ class Particle_Filter():
             particle_poses_wo_mm = np.zeros((N, 3))
             for i in range(N):
 
-                particles[i], bias_w_old[i] = self.process_particle(particles[i], v_t, w_t, std_v=4e-3, std_w=2.5e-4, gamma_w=1e-5, bias_w_std=0.9e-9, bias_old=bias_w_old[i])
-                particles_wo_mm[i], bias_w_old_wo_mm[i] = self.process_particle(particles_wo_mm[i], v_t, w_t, std_v=4e-3, std_w=2.5e-4, gamma_w=1e-5, bias_w_std=9e-9**0.5, bias_old=bias_w_old_wo_mm[i])
+                particles[i], bias_w_old[i] = self.process_particle(particles[i], v_t, w_t, std_v=self.std_v, std_w=self.std_w, gamma=self.gamma, bias_w_std=self.bias_w_std, bias_old=bias_w_old[i])
+                particles_wo_mm[i], bias_w_old_wo_mm[i] = self.process_particle(particles_wo_mm[i], v_t, w_t, std_v=self.std_v, std_w=self.std_w, gamma=self.gamma, bias_w_std=self.bias_w_std, bias_old=bias_w_old_wo_mm[i])
                 particle_poses[i] = particles[i][0:3, 3]
                 particle_poses_wo_mm[i] = particles_wo_mm[i][0:3, 3]
 
@@ -429,7 +431,7 @@ class Particle_Filter():
 
 
 if __name__ == '__main__':
-    filter = Particle_Filter(10, std_w=0.05, std_v=0.1)
+    filter = Particle_Filter(10, std_w=2.5e-4**0.5, std_v=4e-3**0.5, gamma=1e-5, bias_w_std=0.9e-9**0.5)
     # 70 to 250
     mapping_indices = list(range(70, 250))
     # 1580 to 1850
