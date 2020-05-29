@@ -17,9 +17,10 @@ def get_gt_velocities(poses):
     return linear_velocities, angular_velocities
 
 
-def get_gt_velocities_vehicle(poses, std_v, std_w):
+def get_gt_velocities_vehicle(poses, std_v, std_w, gamma, bias_w_std):
     linear_velocities = [np.zeros((3,))]
     angular_velocities = [np.zeros((3,))]
+    bias_old = 0
     for i in range(len(poses) - 1):
         v_ = np.linalg.inv(poses[i][:3, :3]).dot(poses[i + 1][:3, 3] - poses[i][:3, 3])
         v_noise = np.random.normal(0., std_v, 2)
@@ -27,7 +28,8 @@ def get_gt_velocities_vehicle(poses, std_v, std_w):
         v_[2] += v_noise[1]
         linear_velocities.append(v_)
         w_ = get_delta_rot(poses[i][:3, :3], poses[i + 1][:3, :3])
-        w_noise = np.random.normal(0., std_w, 1)
+        bias_w = (1-gamma)*bias_old + np.random.normal(0., bias_w_std, 1)
+        w_noise = np.random.normal(bias_w, std_w, 1)
         w_[1] += w_noise
         angular_velocities.append(w_)
 
@@ -42,7 +44,16 @@ def transform_poses(poses):
     return [T_w0_w.dot(pose) for pose in poses]
 
 
-def process_particle(pose, rel_v, rel_w, noise_v, noise_w):
+def process_particle(pose, rel_v, rel_w, std_v, std_w, gamma, bias_w_std):
+    # Get noise vectors.
+
+    q_v = np.random.normal(0.0, std_v, size=2)
+    q_v = np.array([q_v[0], 0.0, q_v[1]])
+
+    bias_w = (1-gamma)*bias_old + np.random.normal(0., bias_w_st, 1)
+    q_w = np.random.normal(0.0, std_w, size=1)
+    q_w = np.array([0.0, q_w, 0.0])
+    
     v_world = np.squeeze(pose[:3, :3].dot((rel_v + noise_v).reshape(3, 1)))
     w_ = rel_w + noise_w
     old_pos = pose[:3, 3]
