@@ -156,6 +156,29 @@ class Particle_Filter():
             proj = proj_len / (s.dot(s)) * s + p1
         return proj
 
+
+    def process_particle(self, pose, rel_v, rel_w, std_v, std_w, gamma_w, bias_w_std, bias_old):
+        # Get noise vectors.
+
+        q_v = np.random.normal(0.0, std_v, size=2)
+        q_v = np.array([q_v[0], 0.0, q_v[1]])
+
+        bias_w = (1-gamma_w)*bias_old + np.random.normal(0., bias_w_std, 1)
+        q_w = np.random.normal(bias_w, std_w, size=1)
+        q_w = np.array([0.0, q_w, 0.0])
+        
+        v_world = np.squeeze(pose[:3, :3].dot((rel_v + q_v).reshape(3, 1)))
+        w_ = rel_w + q_w
+        old_pos = pose[:3, 3]
+        old_r = pose[:3, :3]
+        new_pos = old_pos + v_world
+        new_r = old_r.dot(r.Rotation.from_rotvec(w_).as_matrix())
+        out_pose = np.eye(4)
+        out_pose[:3, :3] = new_r
+        out_pose[:3, 3] = new_pos
+        return out_pose, bias_w
+
+
     def measurement_update(self, image_id, particles, U, D):
         """ takes an image_id as measurement, as well as the particles, and 3D-map (U, D)
         """
@@ -273,7 +296,7 @@ class Particle_Filter():
         max_weight = np.argmax(weights)
         max_image = pred_images[int(max_weight)]
         # max_image = pred_images[int(np.argmax(num_projections))]
-        max_proj = proj_masks[int(np.argmax(num_projections))]
+        max_proj = proj_masks[int(max_weight)]
         # max_image = pred_images[0]
         # Take a screenshot of the particle vision.
         print("Max likely number of map projections: {}".format(num_projections[int(max_weight)]))
@@ -336,6 +359,7 @@ class Particle_Filter():
         mapping_poses = [self.T_w0_w.dot(self.dataset.poses[image_id].dot(self.T_cam0_cam2)) for image_id in mapping_indices]
 
         particles = np.zeros((N, 4, 4))
+        bias_w_old = np.zeros((N, 1))
         weights = np.ones(N) * 1 / N
         # for i in range(N):
             # th = np.pi * np.random.uniform(0, 2)
@@ -353,7 +377,7 @@ class Particle_Filter():
         for i in range(N):
             particles[i] = localization_poses[0]
 
-        v, w = velocity_measurement.get_gt_velocities_vehicle(localization_poses, std_v=0.00, std_w=0.000)
+        v, w = velocity_measurement.get_gt_velocities_vehicle(localization_poses, std_v=4e-3, std_w=2.5e-4, gamma=1e-5, bias_w_std=0.9e-9)
         for time, image_id in enumerate(localization_indices):
             # pose = T_w0_w.dot(dataset.poses[image_id].dot(T_cam0_cam2))
 
@@ -362,12 +386,8 @@ class Particle_Filter():
             # Motion update
             particle_poses = np.zeros((N, 3))
             for i in range(N):
-                # Get noise vectors.
-                q_w = np.random.normal(0.0, self.std_w, size=1)
-                q_w = np.array([0.0, q_w, 0.0])
-                q_v = np.random.normal(0.0, self.std_v, size=2)
-                q_v = np.array([q_v[0], 0.0, q_v[1]])
-                particles[i] = velocity_measurement.process_particle(particles[i], v_t, w_t, q_v, q_w)
+
+                particles[i], bias_w_old[i] = self.process_particle(particles[i], v_t, w_t, std_v=4e-3, std_w=2.5e-4, gamma_w=1e-5, bias_w_std=0.9e-9, bias_old=bias_w_old[i])
                 particle_poses[i] = particles[i][0:3, 3]
 
             # project particles onto trajectory
@@ -398,7 +418,7 @@ class Particle_Filter():
 
 
 if __name__ == '__main__':
-    filter = Particle_Filter(200, std_w=0.05, std_v=0.1)
+    filter = Particle_Filter(15, std_w=0.05, std_v=0.1)
     # 70 to 250
     mapping_indices = list(range(70, 250))
     # 1580 to 1850
