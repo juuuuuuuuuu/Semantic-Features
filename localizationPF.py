@@ -15,6 +15,7 @@ from operator import itemgetter
 from matplotlib import pyplot as plt
 # World is twisted so we need to transform.
 
+USE_OPTICAL_FLOW = True
 
 R_init = lambda th: np.array([[np.cos(th), -np.sin(th), 0.0],
                   [np.sin(th), np.cos(th), 0.0],
@@ -180,7 +181,6 @@ class Particle_Filter():
         out_pose[:3, 3] = new_pos
         return out_pose, bias_w
 
-
     def measurement_update(self, image_id, particles, U, D):
         """ takes an image_id as measurement, as well as the particles, and 3D-map (U, D)
         """
@@ -216,6 +216,7 @@ class Particle_Filter():
         self.prob_mask = optical_flow.update_mask(self.prob_mask, classes_im, flow, 0.6)
 
         weights = np.zeros(self.N)
+        weights_of = weights.copy()
         num_projections = []
         pred_images = []
         proj_masks = []
@@ -239,61 +240,50 @@ class Particle_Filter():
             depth_image, label_image = utils.pcls_to_image_labels(local_map, means, feat, particles[i], intrinsics,
                                                                   instance_im.shape)
             pred_images.append(label_image)
-            # label_image, _ = utils.pcls_to_image_labels_with_occlusion(local_map, means, feat, particles[i], self.Kmat,
-            #                                                            (instance_im.shape[0], instance_im.shape[1]),
-            #                                                            0.2, 100.)
             im_prob = 1
 
-            if True:
-                # get a boolean mask of all pixels that are matched with the map
-                proj_mask = np.where(~np.isnan(label_image), True, False)
-                map_classes = list(map(int, label_image[proj_mask]))
+            # get a boolean mask of all pixels that are matched with the map
+            proj_mask = np.where(~np.isnan(label_image), True, False)
+            num_px = np.sum(proj_mask)
+            map_classes = list(map(int, label_image[proj_mask]))
+            # num_projections.append(num_px)
+            num_projections.append(np.sum(np.logical_and(proj_mask, instance_im != 0)))
+            proj_masks.append(np.logical_and(proj_mask, instance_im != 0))
+            # print("Num landmarks in image: {}, number of map projections: {}".format(len(local_map), num_px))
+            # num_px = min(1000, num_px)
+            s = 2.
+            if num_px > 0:
+                detect_prob_of = np.zeros((num_px,))
+                for j in range(17):
+                    class_probabilities_of = self.prob_mask[:, :, j]
+                    class_probabilities_of = class_probabilities_of[proj_mask]
+                    pred_image_of = np.full((num_px,), j)
+                    class_prob_of = (np.array(list(map(cnn_pmf_map, zip(map_classes, pred_image_of)))) * 0.9 + 0.1) / \
+                                     np.array(list(map(class_marginal_map, pred_image_of)))
+                    detect_prob_of += np.nan_to_num(class_prob_of) * class_probabilities_of
+
+                cumm_of = np.cumprod(detect_prob_of ** (s / num_px))
+                im_prob_of = cumm_of[-1]
+
                 pred_image = instance_im[proj_mask]
                 pred_image = np.array(list(map(instances_to_classes_map, pred_image)))
-                num_px = pred_image.shape[0]
-                # num_projections.append(num_px)
-                num_projections.append(np.sum(np.logical_and(proj_mask, instance_im != 0)))
-                proj_masks.append(np.logical_and(proj_mask, instance_im != 0))
-                # print("Num landmarks in image: {}, number of map projections: {}".format(len(local_map), num_px))
-                # num_px = min(1000, num_px)
-                s = 2.
-                if num_px > 0:
-                    # (np.array(list(map(cnn_pmf_map, zip(map_classes, pred_image)))) * 0.9 + 0.1) ** (s / num_px)
-                    detect_prob = ((np.array(list(map(cnn_pmf_map, zip(map_classes, pred_image)))) * 0.9 + 0.1) /
-                                   np.array(list(map(class_marginal_map, pred_image)))) ** (s / num_px)
-                    cumm = np.cumprod(detect_prob)
-                    im_prob = cumm[-1]
-                    # im_prob / np.cumprod((np.array(list(map(class_marginal_map, pred_image))) * 0.1) **
-                    # im_prob = im_prob / np.cumprod((np.array(list(map(class_marginal_map, pred_image))) *
-                    #                                 np.array(list(map(class_marginal_map, map_classes)))) **
-                    #                                (s / num_px * 2.))[-1]
-                else:
-                    im_prob = 1e-300
-                # im_prob = max(1e-300, num_px)
-                # print("Num projections {}, probability {}".format(num_projections[-1], im_prob))
+                detect_prob = (np.array(list(map(cnn_pmf_map, zip(map_classes, pred_image)))) * 0.9 + 0.1) / \
+                               np.array(list(map(class_marginal_map, pred_image)))
+                cumm = np.cumprod(detect_prob ** (s / num_px))
+                im_prob = cumm[-1]
+                # im_prob / np.cumprod((np.array(list(map(class_marginal_map, pred_image))) * 0.1) **
+                # im_prob = im_prob / np.cumprod((np.array(list(map(class_marginal_map, pred_image))) *
+                #                                 np.array(list(map(class_marginal_map, map_classes)))) **
+                #                                (s / num_px * 2.))[-1]
             else:
-                seg_mask = np.where(classes_im != 0, True, False)
-                map_image = np.where(np.isnan(label_image), 0., label_image)
-                map_classes = list(map(int, map_image[seg_mask]))
-                seg_classes = classes_im[seg_mask]
-                num_px = seg_classes.shape[0]
-
-                num_projections.append(np.sum(np.logical_and(seg_mask, ~np.isnan(label_image))))
-                # proj_masks.append(np.logical_and(seg_mask, ~np.isnan(label_image)))
-                proj_masks.append(seg_mask)
-
-                s = 1.
-
-                if num_px > 0:
-                    detect_prob = (np.array(list(map(cnn_pmf_map, zip(seg_classes, map_classes)))) /
-                                   np.array(list(map(class_marginal_map, map_classes)))) ** (s / num_px)
-                    im_prob = np.cumprod(detect_prob)[-1]
-                else:
-                    im_prob = 1e-300
-
-                # print("Num projections {}, probability {}".format(num_projections[-1], im_prob))
+                # If there are no detections, then set probability to epsilon
+                im_prob = 1e-300
+                im_prob_of = 1e-300
+            # im_prob = max(1e-300, num_px)
+            # print("Num projections {}, probability {}".format(num_projections[-1], im_prob)
 
             weights[i] = im_prob
+            weights_of[i] = im_prob_of
 
         max_weight = np.argmax(weights)
         max_image = pred_images[int(max_weight)]
@@ -301,8 +291,8 @@ class Particle_Filter():
         max_proj = proj_masks[int(max_weight)]
         # max_image = pred_images[0]
         # Take a screenshot of the particle vision.
-        print("Max likely number of map projections: {}".format(num_projections[int(max_weight)]))
-        print("Most projections: {}".format(max(num_projections)))
+        # print("Max likely number of map projections: {}".format(num_projections[int(max_weight)]))
+        # print("Most projections: {}".format(max(num_projections)))
         if False:
             import imageio
             # f, ax = plt.subplots(2, 1, figsize=(15, 5))
@@ -345,7 +335,7 @@ class Particle_Filter():
             # imageio.imwrite("figure_for_jo_2.png", figure_for_jo_2)
             # exit()
 
-        return weights
+        return weights, weights_of
 
     def run(self, mapping_indices, localization_indices):
         plt.ion()
@@ -362,9 +352,11 @@ class Particle_Filter():
 
         particles = np.zeros((N, 4, 4))
         particles_wo_mm = np.zeros((N, 4, 4))
+        particles_of = np.zeros((N, 4, 4))
         bias_w_old = np.zeros((N, 1))
         bias_w_old_wo_mm = np.zeros((N, 1))
-        weights = np.ones(N) * 1 / N
+        bias_w_old_of = np.zeros((N, 1))
+        # weights = np.ones(N) * 1 / N
         # for i in range(N):
             # th = np.pi * np.random.uniform(0, 2)
             # particles[i,0:3, 0:3] = R_init(th)
@@ -374,14 +366,17 @@ class Particle_Filter():
             # particles[i] = mapping_poses[0]
 
         particle_poses_all = []
+        particle_poses_all_of = []
         particle_poses_all_wo_mm = []
         measurement_model_path = os.path.join(self.ROOT_DIR, "particle_poses")
         # loop trough all measurements
         loc_pose_ind = localization_indices 
         localization_poses = [self.T_w0_w.dot(self.dataset.poses[image_id].dot(self.T_cam0_cam2)) for image_id in loc_pose_ind]
-        np.save('gt_poses.npy', np.array([p[:3, 3] for p in localization_poses]), allow_pickle=False)
+        gt_poses = np.array([p[:3, 3] for p in localization_poses])
+        np.save('gt_poses.npy', gt_poses, allow_pickle=False)
         for i in range(N):
             particles[i] = localization_poses[0]
+            particles_of[i] = localization_poses[0]
             particles_wo_mm[i] = localization_poses[0]
         v, w = velocity_measurement.get_gt_velocities_vehicle(localization_poses, std_v=self.std_v, std_w=self.std_w, gamma=self.gamma, bias_w_std=self.bias_w_std)
         for time, image_id in enumerate(localization_indices):
@@ -391,13 +386,16 @@ class Particle_Filter():
             w_t, v_t = w[time], v[time]
             # Motion update
             particle_poses = np.zeros((N, 3))
+            particle_poses_of = np.zeros((N, 3))
             particle_poses_wo_mm = np.zeros((N, 3))
             for i in range(N):
 
                 particles[i], bias_w_old[i] = self.process_particle(particles[i], v_t, w_t, std_v=self.std_v, std_w=self.std_w, gamma=self.gamma, bias_w_std=self.bias_w_std, bias_old=bias_w_old[i])
                 particles_wo_mm[i], bias_w_old_wo_mm[i] = self.process_particle(particles_wo_mm[i], v_t, w_t, std_v=self.std_v, std_w=self.std_w, gamma=self.gamma, bias_w_std=self.bias_w_std, bias_old=bias_w_old_wo_mm[i])
+                particles_of[i], bias_w_old_of[i] = self.process_particle(particles_of[i], v_t, w_t, std_v=self.std_v, std_w=self.std_w, gamma=self.gamma, bias_w_std=self.bias_w_std, bias_old=bias_w_old_of[i])
                 particle_poses[i] = particles[i][0:3, 3]
                 particle_poses_wo_mm[i] = particles_wo_mm[i][0:3, 3]
+                particle_poses_of[i] = particles_of[i][0:3, 3]
 
             # project particles onto trajectory
             proj_ind = np.random.choice(list(range(N)), int(N * self.alpha))
@@ -412,20 +410,35 @@ class Particle_Filter():
 
 
             # calculate weights with measurement update
-            weights = self.measurement_update(image_id, particles, U, D)
+            weights, weights_of = self.measurement_update(image_id, particles, U, D)
             #self.measurement_update(image_id, particles, U, D)
             # normalize
             sum_weights = weights.sum()
             weights = weights / sum_weights
+            weights_of = weights_of / np.sum(weights_of)
             # resample
             particle_ind = list(range(N))
             particle_ind = np.random.choice(particle_ind, p=weights, size=N)
             particles = particles[particle_ind, :, :]
-            weights = weights[particle_ind]
-            particle_ind = np.random.choice(particle_ind, size=N)
-            particles_wo_mm = particles_wo_mm[particle_ind, :, :]
-          
+
+            particle_ind_of = np.random.choice(list(range(N)), p=weights_of, size=N)
+            particles_of = particles_of[particle_ind_of, :, :]
+
+            # Ououou juu du hast hier einen Fehler gemacht, immer particle_ind von oben genommen...
+            particle_ind_wo_mm = list(range(N))
+            particle_ind_wo_mm = np.random.choice(particle_ind_wo_mm, size=N)
+            particles_wo_mm = particles_wo_mm[particle_ind_wo_mm, :, :]
+
+            error = np.linalg.norm(np.mean(np.array(particle_poses), axis=0) - gt_poses[time, :])
+            error_of = np.linalg.norm(np.mean(np.array(particle_poses_of), axis=0) - gt_poses[time, :])
+            error_wo_mm = np.linalg.norm(np.mean(np.array(particle_poses_wo_mm), axis=0) - gt_poses[time, :])
+
+            print("Error without measurement model: {}".format(error_wo_mm))
+            print("Error with measurement model: {}".format(error))
+            print("Error with measurement model and optical flow: {}".format(error_of))
+
             particle_poses_all.append(particle_poses)
+            particle_poses_all_of.append(particle_poses_of)
             particle_poses_all_wo_mm.append(particle_poses_wo_mm)
 
         np.save(measurement_model_path, particle_poses_all, allow_pickle=False)
