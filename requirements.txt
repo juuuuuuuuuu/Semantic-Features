@@ -1,0 +1,16 @@
+numpy
+scipy
+Pillow
+cython
+matplotlib
+scikit-image
+opencv-python
+h5py
+imgaug
+pycocotools
+datetime
+wget
+IPython[all]
+open3d
+tensorflow==1.13.1
+keras
